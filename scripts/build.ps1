@@ -185,8 +185,7 @@ Invoke-Step -FilePath "cmake" -ArgumentList @(
 Invoke-Step -FilePath "cmake" -ArgumentList $arm64ConfigureArgs
 Invoke-Step -FilePath "cmake" -ArgumentList @(
   "--build", $Arm64BuildDir,
-  "--config", $Configuration,
-  "--target", "MoqiTextService"
+  "--config", $Configuration
 )
 
-Write-Host "OK: Win32 $Configuration (full solution), x64 and ARM64 $Configuration (MoqiTextService)."
+Write-Host "OK: Win32 and ARM64 $Configuration (full solutions), x64 $Configuration (MoqiTextService)."
