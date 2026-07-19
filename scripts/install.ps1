@@ -25,8 +25,12 @@
     1. sibling ..\moqi-ime\scripts\build\TypeDuckRuntime
     2. sibling ..\moqi-ime
 
+.PARAMETER Arm64MoqiImeSource
+  Path to the native ARM64 TypeDuckRuntime tree. Defaults to the sibling backend
+  scripts\build\TypeDuckRuntime-arm64 output.
+
 .PARAMETER SkipMoqiImeCopy
-  If set, do not include the TypeDuck runtime tree in the staged installer payload.
+  If set, do not include either TypeDuck runtime tree in the staged installer payload.
 
 .PARAMETER StageDir
   Installer staging directory (default: RepoRoot\installer\stage).
@@ -40,6 +44,7 @@ param(
     [string] $X64BuildDir = "",
     [string] $Arm64BuildDir = "",
     [string] $MoqiImeSource = "",
+    [string] $Arm64MoqiImeSource = "",
     [switch] $SkipMoqiImeCopy,
     [string] $StageDir = "",
     [string] $IssPath = ""
@@ -360,6 +365,10 @@ if (-not $Win32BuildDir) { $Win32BuildDir = Join-Path $RepoRoot "build-vs32" }
 if (-not $X64BuildDir) { $X64BuildDir = Join-Path $RepoRoot "build-vs64" }
 if (-not $Arm64BuildDir) { $Arm64BuildDir = Join-Path $RepoRoot "build-vsarm64" }
 $MoqiImeSource = Resolve-MoqiImeSource -RepoRoot $RepoRoot -RequestedSource $MoqiImeSource
+if (-not $Arm64MoqiImeSource) {
+    $Arm64MoqiImeSource = Join-Path $RepoRoot "..\moqi-ime\scripts\build\TypeDuckRuntime-arm64"
+}
+$Arm64MoqiImeSource = [System.IO.Path]::GetFullPath($Arm64MoqiImeSource)
 if (-not $StageDir) { $StageDir = Join-Path $RepoRoot "installer\stage" }
 if (-not $IssPath) { $IssPath = Join-Path $RepoRoot "installer\MoqiTsf.iss" }
 $Win32BuildDir = [System.IO.Path]::GetFullPath($Win32BuildDir)
@@ -373,110 +382,144 @@ $stageX64Root = Join-Path $StageDir "x64\TypeDuckIME"
 $stageArm64Root = Join-Path $StageDir "arm64\TypeDuckIME"
 $stageWin32X64Root = Join-Path $stageWin32Root "x64"
 $stageWin32Arm64Root = Join-Path $stageWin32Root "arm64"
+$stageArm64X64Root = Join-Path $stageArm64Root "x64"
+$stageArm64NativeRoot = Join-Path $stageArm64Root "arm64"
 $iconSourceRoot = Join-Path $RepoRoot "TypeDuckSettings\assets"
 $resourceSourceRoot = Join-Path $RepoRoot "TypeDuckSettings\resources"
-$stageResourceRoot = Join-Path $stageWin32Root "resources"
 $transparentIcon = Join-Path $iconSourceRoot "TypeDuck_Transparent.ico"
 $smallIcon = Join-Path $iconSourceRoot "TypeDuck_Small.ico"
-$productIcon = Join-Path $iconSourceRoot "TypeDuck.ico"
 $aboutBanner = Join-Path $resourceSourceRoot "About_Banner.bmp"
 $creditLogos = Join-Path $resourceSourceRoot "Credit_Logos.bmp"
 $installerBitmap = Join-Path $resourceSourceRoot "Installer.bmp"
 $licenseNotice = Join-Path $RepoRoot "THIRD_PARTY_NOTICES.txt"
+
 New-CleanDirectory -Path $StageDir
-New-Item -ItemType Directory -Path $stageWin32Root -Force | Out-Null
-New-Item -ItemType Directory -Path $stageX64Root -Force | Out-Null
-New-Item -ItemType Directory -Path $stageArm64Root -Force | Out-Null
-New-Item -ItemType Directory -Path $stageWin32X64Root -Force | Out-Null
-New-Item -ItemType Directory -Path $stageWin32Arm64Root -Force | Out-Null
-New-Item -ItemType Directory -Path $stageResourceRoot -Force | Out-Null
+foreach ($directory in @(
+    $stageWin32Root,
+    $stageX64Root,
+    $stageArm64Root,
+    $stageWin32X64Root,
+    $stageWin32Arm64Root,
+    $stageArm64X64Root,
+    $stageArm64NativeRoot
+  )) {
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+}
 
-Copy-IfExists -Source $aboutBanner -Destination (Join-Path $stageResourceRoot "About_Banner.bmp")
-Copy-IfExists -Source $creditLogos -Destination (Join-Path $stageResourceRoot "Credit_Logos.bmp")
-Copy-IfExists -Source $installerBitmap -Destination (Join-Path $stageResourceRoot "Installer.bmp")
-Copy-IfExists -Source $smallIcon -Destination (Join-Path $stageResourceRoot "TypeDuck_Small.ico")
-Copy-IfExists -Source $licenseNotice -Destination (Join-Path $stageWin32Root "THIRD_PARTY_NOTICES.txt")
+foreach ($payloadRoot in @($stageWin32Root, $stageArm64Root)) {
+    $stageResourceRoot = Join-Path $payloadRoot "resources"
+    New-Item -ItemType Directory -Path $stageResourceRoot -Force | Out-Null
+    Copy-IfExists -Source $aboutBanner -Destination (Join-Path $stageResourceRoot "About_Banner.bmp")
+    Copy-IfExists -Source $creditLogos -Destination (Join-Path $stageResourceRoot "Credit_Logos.bmp")
+    Copy-IfExists -Source $installerBitmap -Destination (Join-Path $stageResourceRoot "Installer.bmp")
+    Copy-IfExists -Source $smallIcon -Destination (Join-Path $stageResourceRoot "TypeDuck_Small.ico")
+    Copy-IfExists -Source $licenseNotice -Destination (Join-Path $payloadRoot "THIRD_PARTY_NOTICES.txt")
+}
 
-$launcher = Resolve-ArtifactPath -Label "TypeDuckLauncher.exe" -Candidates @(
-    (Join-Path $Win32BuildDir "TypeDuckLauncher.exe"),
+$win32Launcher = Resolve-ArtifactPath -Label "Win32 TypeDuckLauncher.exe" -Candidates @(
     (Join-Path $Win32BuildDir "Release\TypeDuckLauncher.exe"),
     (Join-Path $Win32BuildDir "MoqLauncher\Release\TypeDuckLauncher.exe"),
     (Join-Path $Win32BuildDir "Debug\TypeDuckLauncher.exe"),
     (Join-Path $Win32BuildDir "MoqLauncher\Debug\TypeDuckLauncher.exe")
 )
-Copy-IfExists -Source $launcher -Destination (Join-Path $stageWin32Root "TypeDuckLauncher.exe")
-Set-WindowsExecutableIcon -ExecutablePath (Join-Path $stageWin32Root "TypeDuckLauncher.exe") -IconPath $transparentIcon
+$arm64Launcher = Resolve-ArtifactPath -Label "ARM64 TypeDuckLauncher.exe" -Candidates @(
+    (Join-Path $Arm64BuildDir "Release\TypeDuckLauncher.exe"),
+    (Join-Path $Arm64BuildDir "MoqLauncher\Release\TypeDuckLauncher.exe"),
+    (Join-Path $Arm64BuildDir "Debug\TypeDuckLauncher.exe"),
+    (Join-Path $Arm64BuildDir "MoqLauncher\Debug\TypeDuckLauncher.exe")
+)
 
-$setupHelper = Resolve-ArtifactPath -Label "TypeDuckSetupHelper.exe" -Candidates @(
-    (Join-Path $Win32BuildDir "TypeDuckSetupHelper.exe"),
+$win32SetupHelper = Resolve-ArtifactPath -Label "Win32 TypeDuckSetupHelper.exe" -Candidates @(
     (Join-Path $Win32BuildDir "Release\TypeDuckSetupHelper.exe"),
     (Join-Path $Win32BuildDir "SetupHelper\Release\TypeDuckSetupHelper.exe"),
     (Join-Path $Win32BuildDir "Debug\TypeDuckSetupHelper.exe"),
     (Join-Path $Win32BuildDir "SetupHelper\Debug\TypeDuckSetupHelper.exe")
 )
-Copy-IfExists -Source $setupHelper -Destination (Join-Path $stageWin32Root "TypeDuckSetupHelper.exe")
-Set-WindowsExecutableIcon -ExecutablePath (Join-Path $stageWin32Root "TypeDuckSetupHelper.exe") -IconPath $transparentIcon
+$arm64SetupHelper = Resolve-ArtifactPath -Label "ARM64 TypeDuckSetupHelper.exe" -Candidates @(
+    (Join-Path $Arm64BuildDir "Release\TypeDuckSetupHelper.exe"),
+    (Join-Path $Arm64BuildDir "SetupHelper\Release\TypeDuckSetupHelper.exe"),
+    (Join-Path $Arm64BuildDir "Debug\TypeDuckSetupHelper.exe"),
+    (Join-Path $Arm64BuildDir "SetupHelper\Debug\TypeDuckSetupHelper.exe")
+)
 
-$settingsExe = Resolve-ArtifactPath -Label "TypeDuckSettings.exe" -Candidates @(
-    (Join-Path $Win32BuildDir "TypeDuckSettings.exe"),
+$win32Settings = Resolve-ArtifactPath -Label "Win32 TypeDuckSettings.exe" -Candidates @(
     (Join-Path $Win32BuildDir "Release\TypeDuckSettings.exe"),
     (Join-Path $Win32BuildDir "TypeDuckSettings\Release\TypeDuckSettings.exe"),
-    (Join-Path $RepoRoot "build-vs32-settings-ui\TypeDuckSettings\Release\TypeDuckSettings.exe"),
     (Join-Path $Win32BuildDir "Debug\TypeDuckSettings.exe"),
-    (Join-Path $Win32BuildDir "TypeDuckSettings\Debug\TypeDuckSettings.exe"),
-    (Join-Path $RepoRoot "build-vs32-settings-ui\TypeDuckSettings\Debug\TypeDuckSettings.exe")
+    (Join-Path $Win32BuildDir "TypeDuckSettings\Debug\TypeDuckSettings.exe")
 )
-Copy-IfExists -Source $settingsExe -Destination (Join-Path $stageWin32Root "TypeDuckSettings.exe")
-Set-WindowsExecutableIcon -ExecutablePath (Join-Path $stageWin32Root "TypeDuckSettings.exe") -IconPath $transparentIcon
+$arm64Settings = Resolve-ArtifactPath -Label "ARM64 TypeDuckSettings.exe" -Candidates @(
+    (Join-Path $Arm64BuildDir "Release\TypeDuckSettings.exe"),
+    (Join-Path $Arm64BuildDir "TypeDuckSettings\Release\TypeDuckSettings.exe"),
+    (Join-Path $Arm64BuildDir "Debug\TypeDuckSettings.exe"),
+    (Join-Path $Arm64BuildDir "TypeDuckSettings\Debug\TypeDuckSettings.exe")
+)
 
-$aboutExe = Resolve-ArtifactPath -Label "TypeDuckAbout.exe" -Candidates @(
-    (Join-Path $Win32BuildDir "TypeDuckAbout.exe"),
+$win32About = Resolve-ArtifactPath -Label "Win32 TypeDuckAbout.exe" -Candidates @(
     (Join-Path $Win32BuildDir "Release\TypeDuckAbout.exe"),
     (Join-Path $Win32BuildDir "TypeDuckSettings\Release\TypeDuckAbout.exe"),
-    (Join-Path $RepoRoot "build-vs32-settings-ui\TypeDuckSettings\Release\TypeDuckAbout.exe"),
     (Join-Path $Win32BuildDir "Debug\TypeDuckAbout.exe"),
-    (Join-Path $Win32BuildDir "TypeDuckSettings\Debug\TypeDuckAbout.exe"),
-    (Join-Path $RepoRoot "build-vs32-settings-ui\TypeDuckSettings\Debug\TypeDuckAbout.exe")
+    (Join-Path $Win32BuildDir "TypeDuckSettings\Debug\TypeDuckAbout.exe")
 )
-Copy-IfExists -Source $aboutExe -Destination (Join-Path $stageWin32Root "TypeDuckAbout.exe")
-Set-WindowsExecutableIcon -ExecutablePath (Join-Path $stageWin32Root "TypeDuckAbout.exe") -IconPath $transparentIcon
+$arm64About = Resolve-ArtifactPath -Label "ARM64 TypeDuckAbout.exe" -Candidates @(
+    (Join-Path $Arm64BuildDir "Release\TypeDuckAbout.exe"),
+    (Join-Path $Arm64BuildDir "TypeDuckSettings\Release\TypeDuckAbout.exe"),
+    (Join-Path $Arm64BuildDir "Debug\TypeDuckAbout.exe"),
+    (Join-Path $Arm64BuildDir "TypeDuckSettings\Debug\TypeDuckAbout.exe")
+)
+
+foreach ($executable in @(
+    @{ Source = $win32Launcher; Destination = (Join-Path $stageWin32Root "TypeDuckLauncher.exe") },
+    @{ Source = $win32SetupHelper; Destination = (Join-Path $stageWin32Root "TypeDuckSetupHelper.exe") },
+    @{ Source = $win32Settings; Destination = (Join-Path $stageWin32Root "TypeDuckSettings.exe") },
+    @{ Source = $win32About; Destination = (Join-Path $stageWin32Root "TypeDuckAbout.exe") },
+    @{ Source = $arm64Launcher; Destination = (Join-Path $stageArm64Root "TypeDuckLauncher.exe") },
+    @{ Source = $arm64SetupHelper; Destination = (Join-Path $stageArm64Root "TypeDuckSetupHelper.exe") },
+    @{ Source = $arm64Settings; Destination = (Join-Path $stageArm64Root "TypeDuckSettings.exe") },
+    @{ Source = $arm64About; Destination = (Join-Path $stageArm64Root "TypeDuckAbout.exe") }
+  )) {
+    Copy-IfExists -Source $executable.Source -Destination $executable.Destination
+    Set-WindowsExecutableIcon -ExecutablePath $executable.Destination -IconPath $transparentIcon
+}
 
 $dll32 = Resolve-ArtifactPath -Label "Win32 TypeDuckTextService.dll" -Candidates @(
-    (Join-Path $Win32BuildDir "TypeDuckTextService.dll"),
     (Join-Path $Win32BuildDir "Release\TypeDuckTextService.dll"),
     (Join-Path $Win32BuildDir "MoqiTextService\Release\TypeDuckTextService.dll"),
     (Join-Path $Win32BuildDir "Debug\TypeDuckTextService.dll"),
     (Join-Path $Win32BuildDir "MoqiTextService\Debug\TypeDuckTextService.dll")
 )
 Copy-IfExists -Source $dll32 -Destination (Join-Path $stageWin32Root "TypeDuckTextService.dll")
+Copy-IfExists -Source $dll32 -Destination (Join-Path $stageArm64Root "TypeDuckTextService.dll")
 
 $dll64 = Resolve-ArtifactPath -Label "x64 TypeDuckTextService.dll" -Candidates @(
-    (Join-Path $X64BuildDir "TypeDuckTextService.dll"),
     (Join-Path $X64BuildDir "Release\TypeDuckTextService.dll"),
     (Join-Path $X64BuildDir "MoqiTextService\Release\TypeDuckTextService.dll")
 )
 Copy-IfExists -Source $dll64 -Destination (Join-Path $stageX64Root "TypeDuckTextService.dll")
 Copy-IfExists -Source $dll64 -Destination (Join-Path $stageWin32X64Root "TypeDuckTextService.dll")
+Copy-IfExists -Source $dll64 -Destination (Join-Path $stageArm64X64Root "TypeDuckTextService.dll")
 
 $dllArm64 = Resolve-ArtifactPath -Label "ARM64 TypeDuckTextService.dll" -Candidates @(
-    (Join-Path $Arm64BuildDir "TypeDuckTextService.dll"),
     (Join-Path $Arm64BuildDir "Release\TypeDuckTextService.dll"),
     (Join-Path $Arm64BuildDir "MoqiTextService\Release\TypeDuckTextService.dll")
 )
-Copy-IfExists -Source $dllArm64 -Destination (Join-Path $stageArm64Root "TypeDuckTextService.dll")
 Copy-IfExists -Source $dllArm64 -Destination (Join-Path $stageWin32Arm64Root "TypeDuckTextService.dll")
+Copy-IfExists -Source $dllArm64 -Destination (Join-Path $stageArm64NativeRoot "TypeDuckTextService.dll")
 
 if (-not $SkipMoqiImeCopy) {
-    if (-not (Test-Path -LiteralPath $MoqiImeSource)) {
-        throw "TypeDuck runtime source not found: $MoqiImeSource (use -MoqiImeSource or -SkipMoqiImeCopy)."
+    foreach ($runtime in @(
+        @{ Source = $MoqiImeSource; Destination = (Join-Path $stageWin32Root "TypeDuckRuntime"); Label = "x64" },
+        @{ Source = $Arm64MoqiImeSource; Destination = (Join-Path $stageArm64Root "TypeDuckRuntime"); Label = "ARM64" }
+      )) {
+        if (-not (Test-Path -LiteralPath $runtime.Source)) {
+            throw "$($runtime.Label) TypeDuck runtime source not found: $($runtime.Source)"
+        }
+        Copy-TypeDuckRuntime -SourceRoot $runtime.Source -DestinationRoot $runtime.Destination
+        Set-WindowsExecutableIcon -ExecutablePath (Join-Path $runtime.Destination "server.exe") -IconPath $transparentIcon
     }
-    $runtimeDest = Join-Path $stageWin32Root "TypeDuckRuntime"
-    Copy-TypeDuckRuntime -SourceRoot $MoqiImeSource -DestinationRoot $runtimeDest
-    $backendServer = Join-Path $runtimeDest "server.exe"
-    Set-WindowsExecutableIcon -ExecutablePath $backendServer -IconPath $transparentIcon
 }
 else {
-    Write-Warning "Skipped copying TypeDuckRuntime; ensure the final TypeDuck installer payload is sufficient for registration testing."
+    Write-Warning "Skipped copying TypeDuckRuntime payloads."
 }
 
 $installerScript = Join-Path $RepoRoot "installer\build-installer.ps1"
@@ -488,10 +531,10 @@ if (-not (Test-Path -LiteralPath $IssPath)) {
 }
 
 Write-Host "Stage prepared at: $StageDir"
-Write-Host "Win32 payload: $stageWin32Root"
-Write-Host "x64 payload: $stageX64Root"
-Write-Host "ARM64 payload: $stageArm64Root"
+Write-Host "x64-Windows application payload: $stageWin32Root"
+Write-Host "ARM64-Windows application payload: $stageArm64Root"
 
 & $installerScript -StageDir $StageDir -IssPath $IssPath
 
 Write-Host "Installer build finished."
+
