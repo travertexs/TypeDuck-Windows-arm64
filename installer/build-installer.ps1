@@ -45,11 +45,20 @@ $requiredPaths = @(
     (Join-Path $win32Root 'TypeDuckLauncher.exe'),
     (Join-Path $win32Root 'TypeDuckSetupHelper.exe'),
     (Join-Path $win32Root 'TypeDuckTextService.dll'),
+    (Join-Path $win32Root 'TypeDuckRuntime\server.exe'),
+    (Join-Path $win32Root 'TypeDuckRuntime\input_methods\rime\rime.dll'),
     (Join-Path $win32Root 'THIRD_PARTY_NOTICES.txt'),
     (Join-Path $win32Root 'x64\TypeDuckTextService.dll'),
     (Join-Path $win32Root 'arm64\TypeDuckTextService.dll'),
     (Join-Path $x64Root 'TypeDuckTextService.dll'),
-    (Join-Path $arm64Root 'TypeDuckTextService.dll')
+    (Join-Path $arm64Root 'TypeDuckLauncher.exe'),
+    (Join-Path $arm64Root 'TypeDuckSetupHelper.exe'),
+    (Join-Path $arm64Root 'TypeDuckSettings.exe'),
+    (Join-Path $arm64Root 'TypeDuckAbout.exe'),
+    (Join-Path $arm64Root 'TypeDuckTextService.dll'),
+    (Join-Path $arm64Root 'arm64\TypeDuckTextService.dll'),
+    (Join-Path $arm64Root 'TypeDuckRuntime\server.exe'),
+    (Join-Path $arm64Root 'TypeDuckRuntime\input_methods\rime\rime.dll')
 )
 foreach ($path in $requiredPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
@@ -100,3 +109,4 @@ if ($p.ExitCode -ne 0) {
 $dist = Join-Path $PSScriptRoot 'dist'
 Write-Host "Output: $(Join-Path $dist 'typeduck-windows-ime-setup.exe')"
 exit 0
+
