@@ -26,6 +26,9 @@
 
 .PARAMETER RimeDataSource
   Optional TypeDuck schema checkout forwarded to the sibling backend build.
+
+.PARAMETER Arm64RimeSourceRoot
+  Recursive checkout of TypeDuck-HK/librime used to build native ARM64 rime.dll.
 #>
 param(
     [string] $RepoRoot = "",
@@ -34,7 +37,8 @@ param(
     [string] $Generator = "Visual Studio 17 2022",
     [string] $ProtobufRoot = "",
     [string] $ProtobufSourceDir = "",
-    [string] $RimeDataSource = ""
+    [string] $RimeDataSource = "",
+    [string] $Arm64RimeSourceRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,12 +72,16 @@ if (-not $RepoRoot) { $RepoRoot = $scriptRepoRoot }
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 
 if (-not $MoqiImeRoot) { $MoqiImeRoot = Join-Path $RepoRoot "..\moqi-ime" }
+if (-not $Arm64RimeSourceRoot) { $Arm64RimeSourceRoot = Join-Path $RepoRoot "..\librime" }
 $MoqiImeRoot = [System.IO.Path]::GetFullPath($MoqiImeRoot)
+$Arm64RimeSourceRoot = [System.IO.Path]::GetFullPath($Arm64RimeSourceRoot)
 
 $moqiImeBuildScript = Join-Path $MoqiImeRoot "scripts\build.ps1"
+$arm64RuntimeBuildScript = Join-Path $RepoRoot "scripts\Build-TypeDuckArm64Runtime.ps1"
 $windowsBuildScript = Join-Path $RepoRoot "scripts\build.ps1"
 $windowsInstallScript = Join-Path $RepoRoot "scripts\install.ps1"
 $moqiImeRuntimeDir = Join-Path $MoqiImeRoot "scripts\build\TypeDuckRuntime"
+$arm64RuntimeDir = Join-Path $MoqiImeRoot "scripts\build\TypeDuckRuntime-arm64"
 
 if (-not $ProtobufRoot) {
     $candidatePaths = @()
@@ -119,13 +127,19 @@ if ($ProtobufRoot) {
     Write-Host "[INFO] Using local protobuf root: $ProtobufRoot"
 }
 
-foreach ($path in @($moqiImeBuildScript, $windowsBuildScript, $windowsInstallScript)) {
+foreach ($path in @(
+    $moqiImeBuildScript,
+    $arm64RuntimeBuildScript,
+    $windowsBuildScript,
+    $windowsInstallScript,
+    (Join-Path $Arm64RimeSourceRoot "build.bat")
+  )) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required script not found: $path"
     }
 }
 
-Write-Host "== Step 1/3: Build TypeDuck runtime package =="
+Write-Host "== Step 1/4: Build x64 TypeDuck runtime package =="
 $moqiImeBuildArgs = @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
@@ -141,7 +155,18 @@ if (-not (Test-Path -LiteralPath (Join-Path $moqiImeRuntimeDir "server.exe"))) {
     throw "TypeDuckRuntime was not produced: $moqiImeRuntimeDir"
 }
 
-Write-Host "== Step 2/3: Build TypeDuck Windows IME binaries =="
+Write-Host "== Step 2/4: Build native ARM64 TypeDuck runtime package =="
+Invoke-Step -FilePath "pwsh" -ArgumentList @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", $arm64RuntimeBuildScript,
+    "-BackendRoot", $MoqiImeRoot,
+    "-BaseRuntimeDir", $moqiImeRuntimeDir,
+    "-RimeSourceRoot", $Arm64RimeSourceRoot,
+    "-OutputDir", $arm64RuntimeDir
+) -WorkingDirectory $RepoRoot
+
+Write-Host "== Step 3/4: Build TypeDuck Windows IME binaries =="
 $windowsBuildArgs = @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
@@ -158,13 +183,14 @@ if ($ProtobufRoot) {
 }
 Invoke-Step -FilePath "pwsh" -ArgumentList $windowsBuildArgs -WorkingDirectory $RepoRoot
 
-Write-Host "== Step 3/3: Build TypeDuck installer package =="
+Write-Host "== Step 4/4: Build TypeDuck installer package =="
 Invoke-Step -FilePath "pwsh" -ArgumentList @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
     "-File", $windowsInstallScript,
     "-RepoRoot", $RepoRoot,
-    "-MoqiImeSource", $moqiImeRuntimeDir
+    "-MoqiImeSource", $moqiImeRuntimeDir,
+    "-Arm64MoqiImeSource", $arm64RuntimeDir
 ) -WorkingDirectory $RepoRoot
 
 $installerPath = Join-Path $RepoRoot "installer\dist\typeduck-windows-ime-setup.exe"
@@ -173,3 +199,4 @@ if (Test-Path -LiteralPath $installerPath) {
 } else {
     throw "Installer was not produced: $installerPath"
 }
+
