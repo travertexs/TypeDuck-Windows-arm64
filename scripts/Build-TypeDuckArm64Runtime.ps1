@@ -111,6 +111,9 @@ $boostRoot = Join-Path $RimeSourceRoot "deps\boost-1.84.0"
 $envBat = Join-Path $RimeSourceRoot "env.bat"
 $hadEnvBat = Test-Path -LiteralPath $envBat -PathType Leaf
 $previousEnvBat = if ($hadEnvBat) { [System.IO.File]::ReadAllBytes($envBat) } else { $null }
+$openccSourceRoot = Join-Path $RimeSourceRoot "deps\opencc"
+$openccDataCmake = Join-Path $openccSourceRoot "data\CMakeLists.txt"
+$previousOpenccDataCmake = $null
 $disabledResources = [System.Collections.Generic.List[object]]::new()
 
 try {
@@ -144,6 +147,57 @@ try {
     "define=BOOST_USE_WINAPI_VERSION=0x0A00",
     "stage"
   ) -WorkingDirectory $boostRoot
+
+  # OpenCC normally builds a target-architecture opencc_dict.exe and executes
+  # it while generating its dictionary assets. That cannot work during an
+  # ARM64 cross-build on GitHub's x64 Windows runner. Build the generator for
+  # the host first, then point the ARM64 OpenCC build at that host tool. The
+  # installed OpenCC library itself remains ARM64.
+  $hostOpenccBuild = Join-Path $openccSourceRoot "build-host-x64"
+  if (Test-Path -LiteralPath $hostOpenccBuild) {
+    Remove-Item -LiteralPath $hostOpenccBuild -Recurse -Force
+  }
+  Invoke-NativeCommand -FilePath "cmake" -ArgumentList @(
+    "-S", $openccSourceRoot,
+    "-B", $hostOpenccBuild,
+    "-G", "Visual Studio 17 2022",
+    "-A", "x64",
+    "-DCMAKE_CONFIGURATION_TYPES=Release",
+    "-DBUILD_SHARED_LIBS=OFF",
+    "-DBUILD_TESTING=OFF",
+    "-DENABLE_GTEST=OFF",
+    "-DENABLE_BENCHMARK=OFF",
+    "-DBUILD_DOCUMENTATION=OFF",
+    "-DBUILD_PYTHON=OFF",
+    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+  )
+  Invoke-NativeCommand -FilePath "cmake" -ArgumentList @(
+    "--build", $hostOpenccBuild,
+    "--config", "Release",
+    "--target", "opencc_dict",
+    "--parallel", "2"
+  )
+
+  $hostOpenccDict = Join-Path $hostOpenccBuild "src\tools\Release\opencc_dict.exe"
+  $hostOpenccMachine = Get-PeMachine -Path $hostOpenccDict
+  if ($hostOpenccMachine -ne 0x8664) {
+    throw "OpenCC dictionary generator is not an x64 host executable: $hostOpenccDict"
+  }
+  $previousOpenccDataCmake = [System.IO.File]::ReadAllBytes($openccDataCmake)
+  $openccDataText = [System.IO.File]::ReadAllText($openccDataCmake)
+  $hostOpenccDictCmake = $hostOpenccDict.Replace("\", "/")
+  $openccDataText = $openccDataText.Replace(
+    "set(OPENCC_DICT_BIN opencc_dict)",
+    "set(OPENCC_DICT_BIN `"$hostOpenccDictCmake`")"
+  )
+  if ($openccDataText -notmatch [regex]::Escape($hostOpenccDictCmake)) {
+    throw "Unable to configure OpenCC to use its x64 host dictionary generator."
+  }
+  [System.IO.File]::WriteAllText(
+    $openccDataCmake,
+    $openccDataText,
+    [System.Text.UTF8Encoding]::new($false)
+  )
 
   $envLines = @(
     "set `"RIME_ROOT=$RimeSourceRoot`"",
@@ -226,6 +280,9 @@ finally {
   }
   elseif (Test-Path -LiteralPath $envBat) {
     Remove-Item -LiteralPath $envBat -Force
+  }
+  if ($null -ne $previousOpenccDataCmake) {
+    [System.IO.File]::WriteAllBytes($openccDataCmake, $previousOpenccDataCmake)
   }
 }
 
