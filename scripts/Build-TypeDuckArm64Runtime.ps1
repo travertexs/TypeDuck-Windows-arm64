@@ -186,11 +186,17 @@ try {
   $previousOpenccDataCmake = [System.IO.File]::ReadAllBytes($openccDataCmake)
   $openccDataText = [System.IO.File]::ReadAllText($openccDataCmake)
   $hostOpenccDictCmake = $hostOpenccDict.Replace("\", "/")
+  $hostOpenccToolDirCmake = (Split-Path -Parent $hostOpenccDict).Replace("\", "/")
   $openccDataText = $openccDataText.Replace(
     "set(OPENCC_DICT_BIN opencc_dict)",
     "set(OPENCC_DICT_BIN `"$hostOpenccDictCmake`")"
   )
-  if ($openccDataText -notmatch [regex]::Escape($hostOpenccDictCmake)) {
+  $openccDataText = $openccDataText.Replace(
+    '$<TARGET_FILE_DIR:${OPENCC_DICT_BIN}>',
+    $hostOpenccToolDirCmake
+  )
+  if (($openccDataText -notmatch [regex]::Escape($hostOpenccDictCmake)) -or
+      ($openccDataText -match '\$<TARGET_FILE_DIR:\$\{OPENCC_DICT_BIN\}>')) {
     throw "Unable to configure OpenCC to use its x64 host dictionary generator."
   }
   [System.IO.File]::WriteAllText(
