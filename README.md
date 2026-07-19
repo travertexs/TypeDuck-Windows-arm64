@@ -71,10 +71,16 @@ librime + TypeDuck Rime data + dictionary lookup filter
 
 The frontend repository owns TSF registration, COM entry points, candidate UI, launcher IPC, settings/about UI, setup helper, runtime staging, and the installer. The backend repository owns the Go runtime process, protobuf conversion, Rime service, librime binding, settings application to Rime configuration, and packaged runtime output.
 
+## Windows on Arm
+
+The installer carries x86, x64, and native ARM64 builds of `TypeDuckTextService.dll`. The setup helper detects the operating system architecture and registers the x64 DLL on x64 Windows or the native ARM64 DLL on Windows on Arm; the x86 DLL remains available for emulated 32-bit applications.
+
+The launcher, settings applications, setup helper, and TypeDuck runtime remain x86/x64 binaries and run through Windows on Arm emulation. Because TSF loads the text-service DLL inside each host process, this release supports native ARM64 hosts and x86-emulated hosts; full coverage for x64-emulated host processes will require an ARM64X text-service bridge.
+
 ## Build Prerequisites
 
 - Windows 10 or Windows 11 for development and validation.
-- Visual Studio 2022 with MSVC and Windows SDK.
+- Visual Studio 2022 with the MSVC x86/x64 and ARM64 build tools plus a Windows 11 SDK.
 - CMake 3.21 or newer.
 - PowerShell 7 or newer; use `pwsh` for repository scripts.
 - Inno Setup 6 for installer builds.
@@ -89,6 +95,8 @@ Build the Windows frontend binaries:
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
+
+This builds the complete Win32 solution plus x64 and native ARM64 text-service DLLs in `build-vs32`, `build-vs64`, and `build-vsarm64`.
 
 The build script applies the TypeDuck-owned submodule patches required for the checked-out third-party code. To prepare or verify them without building, run:
 
@@ -146,6 +154,7 @@ TypeDuckIME/
 ├── TypeDuckSetupHelper.exe
 ├── TypeDuckTextService.dll
 ├── x64/TypeDuckTextService.dll
+├── arm64/TypeDuckTextService.dll
 ├── resources/
 └── TypeDuckRuntime/
     ├── server.exe
@@ -193,7 +202,7 @@ The release workflows build on `windows-2022`, checkout both TypeDuck Windows re
 
 - Installer file name and signature/hash evidence.
 - Clean install, upgrade, uninstall, and reboot-required registration paths.
-- Win32 and x64 TSF DLL registration.
+- Win32, x64, and native ARM64 TSF DLL packaging and architecture-aware registration.
 - `zh-HK` language profile registration.
 - Candidate window and dictionary lookup behavior.
 - Settings persistence and Rime side effects.
