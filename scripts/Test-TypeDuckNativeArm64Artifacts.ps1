@@ -76,4 +76,32 @@ foreach ($expectation in $expectations) {
   Write-Host ("[OK] 0x{0:X4} {1}" -f $actual, $expectation.Path)
 }
 
+# Do not let an unlisted executable or runtime dependency silently fall back to
+# emulation. The two TSF DLLs below must match the architecture of the process
+# that loads them; every other PE in the Windows on Arm application payload is
+# required to be native ARM64.
+$arm64PayloadRoot = Join-Path $StageDir "arm64\TypeDuckIME"
+$hostArchitectureDlls = @{
+  "TypeDuckTextService.dll" = $i386
+  "x64\TypeDuckTextService.dll" = $amd64
+}
+
+$arm64PayloadPeFiles = Get-ChildItem -LiteralPath $arm64PayloadRoot -Recurse -File |
+  Where-Object { $_.Extension -in @(".exe", ".dll") }
+
+foreach ($file in $arm64PayloadPeFiles) {
+  $relativePath = $file.FullName.Substring($arm64PayloadRoot.Length).TrimStart("\", "/")
+  $expectedMachine = if ($hostArchitectureDlls.ContainsKey($relativePath)) {
+    $hostArchitectureDlls[$relativePath]
+  }
+  else {
+    $arm64
+  }
+
+  $actualMachine = Get-PeMachine -Path $file.FullName
+  if ($actualMachine -ne $expectedMachine) {
+    throw "Non-native or unexpected PE in ARM64 payload: $relativePath expected 0x$($expectedMachine.ToString('X4')), got 0x$($actualMachine.ToString('X4'))."
+  }
+}
+
 Write-Host "All TypeDuck installer binaries match their declared architectures."
