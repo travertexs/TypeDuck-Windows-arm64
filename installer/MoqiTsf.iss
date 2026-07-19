@@ -1,4 +1,4 @@
-; TypeDuck Windows IME - Inno Setup 6 wizard (x64 only).
+; TypeDuck Windows IME - Inno Setup 6 wizard (x64 and ARM64).
 ; Build: install Inno Setup 6, then run build-installer.ps1 -StageDir <stage root>.
 ; Moqi scaffold compatibility: source filename is kept as MoqiTsf.iss during the transition.
 
@@ -27,8 +27,8 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf32}\TypeDuckIME
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible or arm64
+ArchitecturesInstallIn64BitMode=x64compatible or arm64
 CloseApplications=no
 RestartApplications=no
 WizardStyle=modern
@@ -117,6 +117,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\x64"
+Type: filesandordirs; Name: "{app}\arm64"
 Type: filesandordirs; Name: "{app}\TypeDuckRuntime"
 Type: filesandordirs; Name: "{app}\resources"
 
