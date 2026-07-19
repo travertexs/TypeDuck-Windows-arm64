@@ -7,6 +7,7 @@
   Root of the staged installer tree. Expected layout:
     win32\TypeDuckIME\...
     x64\TypeDuckIME\...
+    arm64\TypeDuckIME\...
 
 .PARAMETER IssPath
   Optional path to MoqiTsf.iss (default: installer dir next to this script).
@@ -29,11 +30,15 @@ $StageDir = (Resolve-Path -LiteralPath $StageDir).Path
 
 $win32Root = Join-Path $StageDir 'win32\TypeDuckIME'
 $x64Root = Join-Path $StageDir 'x64\TypeDuckIME'
+$arm64Root = Join-Path $StageDir 'arm64\TypeDuckIME'
 if (-not (Test-Path -LiteralPath $win32Root)) {
     Write-Error "Stage win32 payload not found: $win32Root"
 }
 if (-not (Test-Path -LiteralPath $x64Root)) {
     Write-Error "Stage x64 payload not found: $x64Root"
+}
+if (-not (Test-Path -LiteralPath $arm64Root)) {
+    Write-Error "Stage ARM64 payload not found: $arm64Root"
 }
 
 $requiredPaths = @(
@@ -42,7 +47,9 @@ $requiredPaths = @(
     (Join-Path $win32Root 'TypeDuckTextService.dll'),
     (Join-Path $win32Root 'THIRD_PARTY_NOTICES.txt'),
     (Join-Path $win32Root 'x64\TypeDuckTextService.dll'),
-    (Join-Path $x64Root 'TypeDuckTextService.dll')
+    (Join-Path $win32Root 'arm64\TypeDuckTextService.dll'),
+    (Join-Path $x64Root 'TypeDuckTextService.dll'),
+    (Join-Path $arm64Root 'TypeDuckTextService.dll')
 )
 foreach ($path in $requiredPaths) {
     if (-not (Test-Path -LiteralPath $path)) {
