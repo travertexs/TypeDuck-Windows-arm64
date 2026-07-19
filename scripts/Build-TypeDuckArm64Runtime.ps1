@@ -100,8 +100,7 @@ $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 foreach ($required in @(
     (Join-Path $BackendRoot "go.mod"),
     (Join-Path $BaseRuntimeDir "server.exe"),
-    (Join-Path $RimeSourceRoot "build.bat"),
-    (Join-Path $RimeSourceRoot "install-boost.bat")
+    (Join-Path $RimeSourceRoot "build.bat")
   )) {
   if (-not (Test-Path -LiteralPath $required)) {
     throw "Required native ARM64 build input not found: $required"
@@ -116,9 +115,14 @@ $disabledResources = [System.Collections.Generic.List[object]]::new()
 
 try {
   if (-not (Test-Path -LiteralPath (Join-Path $boostRoot "boost"))) {
-    Invoke-NativeCommand -FilePath "cmd.exe" -ArgumentList @(
-      "/d", "/c", "call install-boost.bat"
-    ) -WorkingDirectory $RimeSourceRoot
+    $boostArchive = Join-Path $RimeSourceRoot "deps\boost-1.84.0.zip"
+    if (-not (Test-Path -LiteralPath $boostArchive -PathType Leaf)) {
+      Invoke-WebRequest `
+        -Uri "https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.zip" `
+        -OutFile $boostArchive
+    }
+    Expand-Archive -LiteralPath $boostArchive `
+      -DestinationPath (Split-Path -Parent $boostRoot) -Force
   }
 
   $b2 = Join-Path $boostRoot "b2.exe"
