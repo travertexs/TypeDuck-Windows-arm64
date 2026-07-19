@@ -1,4 +1,4 @@
-; TypeDuck Windows IME - Inno Setup 6 wizard (x64 and ARM64).
+; TypeDuck Windows IME - Inno Setup 6 wizard with architecture-native payloads.
 ; Build: install Inno Setup 6, then run build-installer.ps1 -StageDir <stage root>.
 ; Moqi scaffold compatibility: source filename is kept as MoqiTsf.iss during the transition.
 
@@ -24,7 +24,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf32}\TypeDuckIME
+DefaultDirName={autopf}\TypeDuckIME
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible or arm64
@@ -97,7 +97,8 @@ UninstalledMost=TypeDuck 已解除安裝，但有部分檔案需重新啟動電�
 UninstalledAndNeedsRestart=TypeDuck 已解除安裝。如 TypeDuck 仍然出現，請重新啟動電腦。%nTypeDuck is uninstalled. If TypeDuck still appears, restart your computer.
 
 [Files]
-Source: "{#StageDir}\win32\TypeDuckIME\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageDir}\win32\TypeDuckIME\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: not IsArm64
+Source: "{#StageDir}\arm64\TypeDuckIME\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: IsArm64
 
 [Icons]
 Name: "{autoprograms}\TypeDuckIME\輸入法設定 IME Settings"; Filename: "{app}\TypeDuckSettings.exe"
@@ -532,3 +533,4 @@ begin
     RegPurgeTypeDuckResiduals;
   end;
 end;
+
