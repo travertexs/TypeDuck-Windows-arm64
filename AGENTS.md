@@ -95,7 +95,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -RimeDataSource 
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/_all_in_package.ps1 -RimeDataSource <schema-source>
 ```
 
-Frontend build requirements include Visual Studio 2022, Windows SDK, CMake 3.21+, Inno Setup 6 for installer builds, git submodules, and protobuf tooling. Backend build requirements include Go, protobuf Go bindings, a TypeDuck Rime schema source, and packaged `rime.dll` assets.
+Frontend build requirements include Visual Studio 2022 with MSVC x86/x64 and ARM64 tools, a Windows 11 SDK, CMake 3.21+, Inno Setup 6 for installer builds, git submodules, and protobuf tooling. Backend build requirements include Go, protobuf Go bindings, a TypeDuck Rime schema source, and packaged `rime.dll` assets.
 
 TypeDuck-Windows carries TypeDuck-owned patches for third-party submodules in `patches/`. Run `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Apply-TypeDuckSubmodulePatches.ps1` after submodule checkout and before manual CMake configuration. `scripts/build.ps1`, release workflows, and nightly workflows apply the patches automatically; CMake fails fast if the required `libIME2` patch is missing.
 
@@ -154,7 +154,7 @@ Native Rime tests are environment-gated. Use `MOQI_RIME_PACKAGE_DIR`, `MOQI_RIME
 
 ## Installer and Runtime Safety
 
-- Installer work must consider both 32-bit and 64-bit TSF DLL registration.
+- Installer work must consider x86, x64, and native ARM64 TSF DLL packaging and architecture-aware registration.
 - `SetupHelper` copies TSF DLLs into Windows system directories and invokes matching `regsvr32.exe`; changes require install/uninstall/reboot-path verification.
 - `TypeDuckLauncher` startup registration is under HKCU and should remain per-user.
 - The runtime package must include `TypeDuckRuntime/server.exe`, `input_methods/rime/rime.dll`, Rime data, and `appearance_themes.json`.
@@ -192,7 +192,7 @@ Native Rime tests are environment-gated. Use `MOQI_RIME_PACKAGE_DIR`, `MOQI_RIME
 - Are all user-facing strings bilingual Traditional Hong Kong Chinese and English?
 - Are frontend and backend protobuf schemas still compatible?
 - Are generated protobuf files updated only through generation?
-- Does the installer still stage `TypeDuckRuntime` and both TSF DLL bitnesses?
+- Does the installer still stage `TypeDuckRuntime` plus x86, x64, and native ARM64 TSF DLLs?
 - Are TypeDuck settings persisted, validated, and applied without corrupting existing settings?
 - Are logs privacy-safe?
 - Were tests run in the repository that owns the changed behavior, plus cross-repo checks when protocol/runtime packaging changed?
