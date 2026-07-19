@@ -293,6 +293,20 @@ std::wstring GetNativeSystemDirectoryForChildProcess() {
   return (fs::path(GetWindowsDirectoryPath()) / L"System32").wstring();
 }
 
+bool IsNativeArm64() {
+  SYSTEM_INFO system_info = {};
+  GetNativeSystemInfo(&system_info);
+  return system_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64;
+}
+
+std::wstring GetNativePayloadDirectoryName() {
+  return IsNativeArm64() ? L"arm64" : L"x64";
+}
+
+std::wstring GetNativeArchitectureName() {
+  return IsNativeArm64() ? L"ARM64" : L"x64";
+}
+
 std::wstring NormalizePathForPendingOperation(const std::wstring& path) {
   const std::wstring sysnative_prefix =
       fs::path(GetWindowsDirectoryPath() + L"\\Sysnative").wstring() + L"\\";
@@ -666,23 +680,23 @@ std::wstring TypingSetupFailureMessage() {
 int RunReregister(const Options& options) {
   const fs::path app_dir(options.app_dir);
   const fs::path source32 = app_dir / kTextServiceDllName;
-  const fs::path source64 = app_dir / L"x64" / kTextServiceDllName;
+  const fs::path source_native = app_dir / GetNativePayloadDirectoryName() / kTextServiceDllName;
   const fs::path dest32 = fs::path(GetSyswow64DirectoryPath()) / kTextServiceDllName;
-  const fs::path dest64 = fs::path(GetNativeSystemDirectoryPath()) / kTextServiceDllName;
-  const fs::path dest64_for_regsvr =
+  const fs::path dest_native = fs::path(GetNativeSystemDirectoryPath()) / kTextServiceDllName;
+  const fs::path dest_native_for_regsvr =
       fs::path(GetNativeSystemDirectoryForChildProcess()) / kTextServiceDllName;
   const fs::path regsvr32 = fs::path(GetSyswow64DirectoryPath()) / L"regsvr32.exe";
-  const fs::path regsvr64 = fs::path(GetNativeSystemDirectoryPath()) / L"regsvr32.exe";
+  const fs::path regsvr_native = fs::path(GetNativeSystemDirectoryPath()) / L"regsvr32.exe";
 
   CleanupStaleOldFiles(dest32);
-  CleanupStaleOldFiles(dest64);
+  CleanupStaleOldFiles(dest_native);
   CleanupStaleRebootCopies(source32);
-  CleanupStaleRebootCopies(source64);
+  CleanupStaleRebootCopies(source_native);
 
   if (!RunRegsvr(regsvr32, dest32, app_dir, false)) {
     return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
   }
-  if (!RunRegsvr(regsvr64, dest64_for_regsvr, app_dir, false)) {
+  if (!RunRegsvr(regsvr_native, dest_native_for_regsvr, app_dir, false)) {
     return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
   }
   DeleteReregisterTask();
@@ -692,15 +706,15 @@ int RunReregister(const Options& options) {
 int RunInstall(const Options& options) {
   const fs::path app_dir(options.app_dir);
   const fs::path source32 = app_dir / kTextServiceDllName;
-  const fs::path source64 = app_dir / L"x64" / kTextServiceDllName;
+  const fs::path source_native = app_dir / GetNativePayloadDirectoryName() / kTextServiceDllName;
   // TSF DLLs must live in system directories, or IME input will not work in
   // some games such as CS2.
   const fs::path dest32 = fs::path(GetSyswow64DirectoryPath()) / kTextServiceDllName;
-  const fs::path dest64 = fs::path(GetNativeSystemDirectoryPath()) / kTextServiceDllName;
-  const fs::path dest64_for_regsvr =
+  const fs::path dest_native = fs::path(GetNativeSystemDirectoryPath()) / kTextServiceDllName;
+  const fs::path dest_native_for_regsvr =
       fs::path(GetNativeSystemDirectoryForChildProcess()) / kTextServiceDllName;
   const fs::path regsvr32 = fs::path(GetSyswow64DirectoryPath()) / L"regsvr32.exe";
-  const fs::path regsvr64 = fs::path(GetNativeSystemDirectoryPath()) / L"regsvr32.exe";
+  const fs::path regsvr_native = fs::path(GetNativeSystemDirectoryPath()) / L"regsvr32.exe";
 
   if (!fs::exists(source32)) {
     return ShowFailureAndReturn(
@@ -708,10 +722,13 @@ int RunInstall(const Options& options) {
                   L"Missing Win32 TypeDuck payload: " + source32.wstring()),
         options.silent);
   }
-  if (!fs::exists(source64)) {
+  if (!fs::exists(source_native)) {
     return ShowFailureAndReturn(
-        Bilingual(L"缺少 x64 TypeDuck 安裝檔案: " + source64.wstring(),
-                  L"Missing x64 TypeDuck payload: " + source64.wstring()),
+        Bilingual(
+            L"缺少 " + GetNativeArchitectureName() +
+                L" TypeDuck 安裝檔案: " + source_native.wstring(),
+            L"Missing " + GetNativeArchitectureName() +
+                L" TypeDuck payload: " + source_native.wstring()),
         options.silent);
   }
 
@@ -743,18 +760,20 @@ int RunInstall(const Options& options) {
   }
   initial_copy_error = 0;
   fallback_error = 0;
-  if (!CopyFileWithFallback(source64, dest64, reboot_required, &copy_error,
+  if (!CopyFileWithFallback(source_native, dest_native, reboot_required, &copy_error,
                             &initial_copy_error, &fallback_error)) {
     if (!((initial_copy_error == ERROR_SHARING_VIOLATION ||
            initial_copy_error == ERROR_ACCESS_DENIED ||
            fallback_error == ERROR_SHARING_VIOLATION ||
            fallback_error == ERROR_ACCESS_DENIED) &&
-          ScheduleReplaceOnReboot(source64, dest64, reboot_required,
+          ScheduleReplaceOnReboot(source_native, dest_native, reboot_required,
                                   &copy_error))) {
       return ShowFailureAndReturn(
-          Bilingual(L"未能更新 x64 TypeDuck TSF DLL: " + dest64.wstring(),
-                    L"Failed to update x64 TypeDuck TSF DLL: " +
-                        dest64.wstring()) +
+          Bilingual(
+              L"未能更新 " + GetNativeArchitectureName() +
+                  L" TypeDuck TSF DLL: " + dest_native.wstring(),
+              L"Failed to update " + GetNativeArchitectureName() +
+                  L" TypeDuck TSF DLL: " + dest_native.wstring()) +
               L"\n\n" + copy_error,
           options.silent);
     }
@@ -771,7 +790,7 @@ int RunInstall(const Options& options) {
   if (!RunRegsvr(regsvr32, dest32, app_dir, false)) {
     return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
   }
-  if (!RunRegsvr(regsvr64, dest64_for_regsvr, app_dir, false)) {
+  if (!RunRegsvr(regsvr_native, dest_native_for_regsvr, app_dir, false)) {
     return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
   }
   return kExitSuccess;
@@ -780,15 +799,15 @@ int RunInstall(const Options& options) {
 int RunUninstall(const Options& options) {
   const fs::path app_dir(options.app_dir);
   const fs::path dest32 = fs::path(GetSyswow64DirectoryPath()) / kTextServiceDllName;
-  const fs::path dest64 = fs::path(GetNativeSystemDirectoryPath()) / kTextServiceDllName;
-  const fs::path dest64_for_regsvr =
+  const fs::path dest_native = fs::path(GetNativeSystemDirectoryPath()) / kTextServiceDllName;
+  const fs::path dest_native_for_regsvr =
       fs::path(GetNativeSystemDirectoryForChildProcess()) / kTextServiceDllName;
   const fs::path regsvr32 = fs::path(GetSyswow64DirectoryPath()) / L"regsvr32.exe";
-  const fs::path regsvr64 = fs::path(GetNativeSystemDirectoryPath()) / L"regsvr32.exe";
+  const fs::path regsvr_native = fs::path(GetNativeSystemDirectoryPath()) / L"regsvr32.exe";
 
   DeleteReregisterTask();
   RunRegsvr(regsvr32, dest32, app_dir, true);
-  RunRegsvr(regsvr64, dest64_for_regsvr, app_dir, true);
+  RunRegsvr(regsvr_native, dest_native_for_regsvr, app_dir, true);
 
   bool reboot_required = false;
   if (!DeleteFileWithFallback(dest32, reboot_required)) {
@@ -798,11 +817,13 @@ int RunUninstall(const Options& options) {
                       dest32.wstring()),
         options.silent);
   }
-  if (!DeleteFileWithFallback(dest64, reboot_required)) {
+  if (!DeleteFileWithFallback(dest_native, reboot_required)) {
     return ShowFailureAndReturn(
-        Bilingual(L"未能移除 x64 TypeDuck TSF DLL: " + dest64.wstring(),
-                  L"Failed to remove x64 TypeDuck TSF DLL: " +
-                      dest64.wstring()),
+        Bilingual(
+            L"未能移除 " + GetNativeArchitectureName() +
+                L" TypeDuck TSF DLL: " + dest_native.wstring(),
+            L"Failed to remove " + GetNativeArchitectureName() +
+                L" TypeDuck TSF DLL: " + dest_native.wstring()),
         options.silent);
   }
   return reboot_required ? kExitRestartRequired : kExitSuccess;
