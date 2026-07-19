@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Build Win32 and x64 Moqi IM for Windows binaries with CMake.
+  Build Win32, x64, and ARM64 TypeDuck IME binaries with CMake.
 
 .PARAMETER RepoRoot
   Root of moqi-im-windows (defaults to the parent directory of this script).
@@ -11,6 +11,9 @@
 
 .PARAMETER X64BuildDir
   CMake x64 build directory (default: RepoRoot\build-vs64).
+
+.PARAMETER Arm64BuildDir
+  CMake ARM64 build directory (default: RepoRoot\build-vsarm64).
 
 .PARAMETER Configuration
   Build configuration (default: Release).
@@ -28,6 +31,7 @@ param(
   [string] $RepoRoot = "",
   [string] $Win32BuildDir = "",
   [string] $X64BuildDir = "",
+  [string] $Arm64BuildDir = "",
   [string] $Configuration = "Release",
   [string] $Generator = "Visual Studio 17 2022",
   [string] $ProtobufRoot = "",
@@ -121,8 +125,10 @@ $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 
 if (-not $Win32BuildDir) { $Win32BuildDir = Join-Path $RepoRoot "build-vs32" }
 if (-not $X64BuildDir) { $X64BuildDir = Join-Path $RepoRoot "build-vs64" }
+if (-not $Arm64BuildDir) { $Arm64BuildDir = Join-Path $RepoRoot "build-vsarm64" }
 $Win32BuildDir = [System.IO.Path]::GetFullPath($Win32BuildDir)
 $X64BuildDir = [System.IO.Path]::GetFullPath($X64BuildDir)
+$Arm64BuildDir = [System.IO.Path]::GetFullPath($Arm64BuildDir)
 
 $submodulePatchScript = Join-Path $RepoRoot "scripts\Apply-TypeDuckSubmodulePatches.ps1"
 Write-Host ">> $submodulePatchScript -RepoRoot $RepoRoot"
@@ -157,6 +163,11 @@ $x64ConfigureArgs = $commonConfigureArgs + @(
   "-G", $Generator,
   "-A", "x64"
 )
+$arm64ConfigureArgs = $commonConfigureArgs + @(
+  "-B", $Arm64BuildDir,
+  "-G", $Generator,
+  "-A", "ARM64"
+)
 
 Invoke-Step -FilePath "cmake" -ArgumentList $win32ConfigureArgs
 Invoke-Step -FilePath "cmake" -ArgumentList @(
@@ -171,4 +182,11 @@ Invoke-Step -FilePath "cmake" -ArgumentList @(
   "--target", "MoqiTextService"
 )
 
-Write-Host "OK: Win32 $Configuration (full solution), x64 $Configuration (MoqiTextService)."
+Invoke-Step -FilePath "cmake" -ArgumentList $arm64ConfigureArgs
+Invoke-Step -FilePath "cmake" -ArgumentList @(
+  "--build", $Arm64BuildDir,
+  "--config", $Configuration,
+  "--target", "MoqiTextService"
+)
+
+Write-Host "OK: Win32 $Configuration (full solution), x64 and ARM64 $Configuration (MoqiTextService)."
