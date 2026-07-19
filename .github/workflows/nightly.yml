@@ -15,6 +15,7 @@ concurrency:
 
 env:
   PROTOBUF_VERSION: "33.5"
+  TYPEDUCK_RIME_VERSION: "v1.1.4"
 
 jobs:
   build-nightly:
@@ -38,6 +39,15 @@ jobs:
           path: TypeDuck-Windows-backend
           submodules: recursive
           fetch-depth: 0
+
+      - name: Checkout TypeDuck librime
+        uses: actions/checkout@v4
+        with:
+          repository: TypeDuck-HK/librime
+          path: TypeDuck-librime
+          submodules: recursive
+          fetch-depth: 1
+          ref: ${{ env.TYPEDUCK_RIME_VERSION }}
 
       - name: Download TypeDuck schema build
         run: |
@@ -89,7 +99,15 @@ jobs:
             -RepoRoot "$env:GITHUB_WORKSPACE\TypeDuck-Windows" `
             -MoqiImeRoot "$env:GITHUB_WORKSPACE\TypeDuck-Windows-backend" `
             -RimeDataSource "$env:GITHUB_WORKSPACE\TypeDuck-HK-schema" `
+            -Arm64RimeSourceRoot "$env:GITHUB_WORKSPACE\TypeDuck-librime" `
             -ProtobufRoot "$env:PROTOBUF_ROOT"
+
+      - name: Verify staged binary architectures
+        working-directory: ${{ github.workspace }}/TypeDuck-Windows
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-TypeDuckNativeArm64Artifacts.ps1 `
+            -RepoRoot . `
+            -StageDir .\installer\stage
 
       - name: Prepare installer asset name
         working-directory: ${{ github.workspace }}/TypeDuck-Windows
@@ -144,3 +162,4 @@ jobs:
           else {
             gh release create $tag $assetPath --title "Nightly" --notes-file $notesPath --prerelease
           }
+
