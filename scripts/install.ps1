@@ -16,6 +16,9 @@
 .PARAMETER X64BuildDir
   CMake x64 build directory (default: RepoRoot\build-vs64).
 
+.PARAMETER Arm64BuildDir
+  CMake ARM64 build directory (default: RepoRoot\build-vsarm64).
+
 .PARAMETER MoqiImeSource
   Legacy parameter compatibility: path to the TypeDuckRuntime tree to copy as backend.
   Default detection order:
@@ -35,6 +38,7 @@ param(
     [string] $RepoRoot = "",
     [string] $Win32BuildDir = "",
     [string] $X64BuildDir = "",
+    [string] $Arm64BuildDir = "",
     [string] $MoqiImeSource = "",
     [switch] $SkipMoqiImeCopy,
     [string] $StageDir = "",
@@ -354,17 +358,21 @@ $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 
 if (-not $Win32BuildDir) { $Win32BuildDir = Join-Path $RepoRoot "build-vs32" }
 if (-not $X64BuildDir) { $X64BuildDir = Join-Path $RepoRoot "build-vs64" }
+if (-not $Arm64BuildDir) { $Arm64BuildDir = Join-Path $RepoRoot "build-vsarm64" }
 $MoqiImeSource = Resolve-MoqiImeSource -RepoRoot $RepoRoot -RequestedSource $MoqiImeSource
 if (-not $StageDir) { $StageDir = Join-Path $RepoRoot "installer\stage" }
 if (-not $IssPath) { $IssPath = Join-Path $RepoRoot "installer\MoqiTsf.iss" }
 $Win32BuildDir = [System.IO.Path]::GetFullPath($Win32BuildDir)
 $X64BuildDir = [System.IO.Path]::GetFullPath($X64BuildDir)
+$Arm64BuildDir = [System.IO.Path]::GetFullPath($Arm64BuildDir)
 $StageDir = [System.IO.Path]::GetFullPath($StageDir)
 $IssPath = [System.IO.Path]::GetFullPath($IssPath)
 
 $stageWin32Root = Join-Path $StageDir "win32\TypeDuckIME"
 $stageX64Root = Join-Path $StageDir "x64\TypeDuckIME"
+$stageArm64Root = Join-Path $StageDir "arm64\TypeDuckIME"
 $stageWin32X64Root = Join-Path $stageWin32Root "x64"
+$stageWin32Arm64Root = Join-Path $stageWin32Root "arm64"
 $iconSourceRoot = Join-Path $RepoRoot "TypeDuckSettings\assets"
 $resourceSourceRoot = Join-Path $RepoRoot "TypeDuckSettings\resources"
 $stageResourceRoot = Join-Path $stageWin32Root "resources"
@@ -378,7 +386,9 @@ $licenseNotice = Join-Path $RepoRoot "THIRD_PARTY_NOTICES.txt"
 New-CleanDirectory -Path $StageDir
 New-Item -ItemType Directory -Path $stageWin32Root -Force | Out-Null
 New-Item -ItemType Directory -Path $stageX64Root -Force | Out-Null
+New-Item -ItemType Directory -Path $stageArm64Root -Force | Out-Null
 New-Item -ItemType Directory -Path $stageWin32X64Root -Force | Out-Null
+New-Item -ItemType Directory -Path $stageWin32Arm64Root -Force | Out-Null
 New-Item -ItemType Directory -Path $stageResourceRoot -Force | Out-Null
 
 Copy-IfExists -Source $aboutBanner -Destination (Join-Path $stageResourceRoot "About_Banner.bmp")
@@ -448,6 +458,14 @@ $dll64 = Resolve-ArtifactPath -Label "x64 TypeDuckTextService.dll" -Candidates @
 Copy-IfExists -Source $dll64 -Destination (Join-Path $stageX64Root "TypeDuckTextService.dll")
 Copy-IfExists -Source $dll64 -Destination (Join-Path $stageWin32X64Root "TypeDuckTextService.dll")
 
+$dllArm64 = Resolve-ArtifactPath -Label "ARM64 TypeDuckTextService.dll" -Candidates @(
+    (Join-Path $Arm64BuildDir "TypeDuckTextService.dll"),
+    (Join-Path $Arm64BuildDir "Release\TypeDuckTextService.dll"),
+    (Join-Path $Arm64BuildDir "MoqiTextService\Release\TypeDuckTextService.dll")
+)
+Copy-IfExists -Source $dllArm64 -Destination (Join-Path $stageArm64Root "TypeDuckTextService.dll")
+Copy-IfExists -Source $dllArm64 -Destination (Join-Path $stageWin32Arm64Root "TypeDuckTextService.dll")
+
 if (-not $SkipMoqiImeCopy) {
     if (-not (Test-Path -LiteralPath $MoqiImeSource)) {
         throw "TypeDuck runtime source not found: $MoqiImeSource (use -MoqiImeSource or -SkipMoqiImeCopy)."
@@ -472,6 +490,7 @@ if (-not (Test-Path -LiteralPath $IssPath)) {
 Write-Host "Stage prepared at: $StageDir"
 Write-Host "Win32 payload: $stageWin32Root"
 Write-Host "x64 payload: $stageX64Root"
+Write-Host "ARM64 payload: $stageArm64Root"
 
 & $installerScript -StageDir $StageDir -IssPath $IssPath
 
