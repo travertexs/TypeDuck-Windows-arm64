@@ -73,9 +73,9 @@ The frontend repository owns TSF registration, COM entry points, candidate UI, l
 
 ## Windows on Arm
 
-The installer carries x86, x64, and native ARM64 builds of `TypeDuckTextService.dll`. The setup helper detects the operating system architecture and registers the x64 DLL on x64 Windows or the native ARM64 DLL on Windows on Arm; the x86 DLL remains available for emulated 32-bit applications.
+The installer contains separate x64-Windows and ARM64-Windows application payloads. On Windows on Arm, `TypeDuckLauncher.exe`, `TypeDuckSettings.exe`, `TypeDuckAbout.exe`, `TypeDuckSetupHelper.exe`, the Go `server.exe`, TypeDuck `rime.dll`, and the TSF DLL all run as native ARM64 binaries. The x86 and x64 TSF DLLs remain packaged for compatibility.
 
-The launcher, settings applications, setup helper, and TypeDuck runtime remain x86/x64 binaries and run through Windows on Arm emulation. Because TSF loads the text-service DLL inside each host process, this release supports native ARM64 hosts and x86-emulated hosts; full coverage for x64-emulated host processes will require an ARM64X text-service bridge.
+The release workflow reads every staged PE header and fails unless each executable and DLL matches its declared architecture. Native ARM64 and x86-emulated TSF hosts are covered. Full in-process support inside x64-emulated host applications still requires an ARM64X text-service bridge.
 
 ## Build Prerequisites
 
@@ -87,6 +87,7 @@ The launcher, settings applications, setup helper, and TypeDuck runtime remain x
 - Go matching the backend module requirement.
 - Protocol Buffers `protoc` 33.5 or a local protobuf source tree.
 - A TypeDuck Rime schema source directory to pass as `-RimeDataSource`. The directory must include a `build` folder containing the artifacts pre-compiled by librime.
+- A recursive checkout of `TypeDuck-HK/librime` at `v1.1.4` to pass as `-Arm64RimeSourceRoot` when building the universal installer.
 
 ## Build
 
@@ -96,7 +97,7 @@ Build the Windows frontend binaries:
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
 
-This builds the complete Win32 solution plus x64 and native ARM64 text-service DLLs in `build-vs32`, `build-vs64`, and `build-vsarm64`.
+This builds the complete Win32 and native ARM64 solutions plus the x64 text-service DLL in `build-vs32`, `build-vs64`, and `build-vsarm64`.
 
 The build script applies the TypeDuck-owned submodule patches required for the checked-out third-party code. To prepare or verify them without building, run:
 
@@ -108,10 +109,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Apply-TypeDuckSubmodulePat
 Build the full installer after the backend runtime and schema source are available:
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/_all_in_package.ps1 -RimeDataSource <schema-source>
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/_all_in_package.ps1 `
+  -RimeDataSource <schema-source> `
+  -Arm64RimeSourceRoot <TypeDuck-HK-librime-checkout>
 ```
 
-The installer is written to:
+The packaging script builds both the x64 runtime and the native ARM64 Go/librime runtime. It then writes the installer to:
 
 ```text
 installer/dist/typeduck-windows-ime-setup.exe
@@ -130,14 +133,14 @@ typeduck-windows-ime-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="C:
 - `/SUPPRESSMSGBOXES` answers standard installer message boxes automatically where possible. Use it with `/SILENT` or `/VERYSILENT`.
 - `/NORESTART` prevents the installer from restarting Windows automatically. If TSF files are locked, TypeDuck may finish registration after a later restart.
 - `/LOG="path"` writes an installer log for deployment diagnostics.
-- `/DIR="path"` overrides the install directory. The default is `%ProgramFiles(x86)%\TypeDuckIME`.
+- `/DIR="path"` overrides the install directory. The default is `%ProgramFiles%\TypeDuckIME` on 64-bit Windows.
 
 The silent installer still registers the TSF text service, installs the launcher startup entry, and runs the settings-apply path. It does not open the Settings or About windows at the end.
 
-The uninstaller is installed as `%ProgramFiles(x86)%\TypeDuckIME\unins000.exe` and accepts the same silent/logging flags:
+The uninstaller is installed as `%ProgramFiles%\TypeDuckIME\unins000.exe` on 64-bit Windows and accepts the same silent/logging flags:
 
 ```powershell
-& "$env:ProgramFiles(x86)\TypeDuckIME\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="C:\Temp\TypeDuck-uninstall.log"
+& "$env:ProgramFiles\TypeDuckIME\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="C:\Temp\TypeDuck-uninstall.log"
 ```
 
 Interactive uninstall asks whether to delete personal TypeDuck settings and dictionary data. Silent uninstall skips that prompt and preserves roaming user data under `%APPDATA%\TypeDuckIME`; local TypeDuck logs/cache under `%LOCALAPPDATA%\TypeDuckIME` are removed by the uninstaller.
@@ -202,7 +205,8 @@ The release workflows build on `windows-2022`, checkout both TypeDuck Windows re
 
 - Installer file name and signature/hash evidence.
 - Clean install, upgrade, uninstall, and reboot-required registration paths.
-- Win32, x64, and native ARM64 TSF DLL packaging and architecture-aware registration.
+- Native ARM64 launcher, settings/about applications, setup helper, Go runtime, librime, and TSF DLLs.
+- PE-machine validation for every staged x86, x64, and ARM64 executable and DLL.
 - `zh-HK` language profile registration.
 - Candidate window and dictionary lookup behavior.
 - Settings persistence and Rime side effects.
@@ -214,3 +218,4 @@ This repository is licensed under the [MIT License](LICENSE).
 ## Acknowledgement
 
 Thanks to the Moqi IME project for its earlier Windows IME engineering work.
+
