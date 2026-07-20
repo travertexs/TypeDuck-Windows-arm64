@@ -239,6 +239,9 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/TypeDuckSettings")
 
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     add_subdirectory("${PROJECT_SOURCE_DIR}/Tools/TypeduckBackendProbe")
-    add_subdirectory("${PROJECT_SOURCE_DIR}/MoqLauncher")
-    add_subdirectory("${PROJECT_SOURCE_DIR}/SetupHelper")
 endif()
+
+# The launcher and setup helper are native application components on Windows on
+# Arm, not 32-bit compatibility shims. Build them for Win32 and ARM64 alike.
+add_subdirectory("${PROJECT_SOURCE_DIR}/MoqLauncher")
+add_subdirectory("${PROJECT_SOURCE_DIR}/SetupHelper")
