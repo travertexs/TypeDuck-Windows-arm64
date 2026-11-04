@@ -35,6 +35,7 @@ param(
     [string] $RepoRoot = "",
     [string] $Win32BuildDir = "",
     [string] $X64BuildDir = "",
+    [string] $Arm64XBuildDir = "",
     [string] $MoqiImeSource = "",
     [switch] $SkipMoqiImeCopy,
     [string] $StageDir = "",
@@ -452,6 +453,16 @@ $dll64 = Resolve-ArtifactPath -Label "x64 TypeDuckTextService.dll" -Candidates @
 )
 Copy-IfExists -Source $dll64 -Destination (Join-Path $stageX64Root "TypeDuckTextService.dll")
 Copy-IfExists -Source $dll64 -Destination (Join-Path $stageWin32X64Root "TypeDuckTextService.dll")
+
+if ($Arm64XBuildDir) {
+    $arm64Dll = Join-Path $Arm64XBuildDir "MoqiTextService\Release\TypeDuckTextService.dll"
+    if (-not (Test-Path -LiteralPath $arm64Dll -PathType Leaf)) {
+        throw "Missing ARM64X text service: $arm64Dll"
+    }
+    $arm64Stage = Join-Path $stageWin32Root "arm64"
+    New-Item -ItemType Directory -Path $arm64Stage -Force | Out-Null
+    Copy-Item -LiteralPath $arm64Dll -Destination $arm64Stage
+}
 
 if (-not $SkipMoqiImeCopy) {
     if (-not (Test-Path -LiteralPath $MoqiImeSource)) {

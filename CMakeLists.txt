@@ -17,6 +17,10 @@ set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cxx_fl
 
 project(MoqiIMWindows LANGUAGES C CXX)
 
+enable_testing()
+add_executable(TypeDuckLoadProbe Tests/TypeDuckLoadProbe.cpp)
+target_link_libraries(TypeDuckLoadProbe PRIVATE ole32 uuid)
+
 include(FetchContent)
 set(MOQI_PROTOBUF_ROOT "" CACHE PATH "Optional local protobuf install root (contains bin/include)")
 set(MOQI_PROTOBUF_SOURCE_DIR "" CACHE PATH "Optional local protobuf source tree")

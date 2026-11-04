@@ -657,6 +657,23 @@ bool Is64BitWindows() {
 #endif
 }
 
+fs::path NativeTextServiceSource(const fs::path& app_dir) {
+  using IsWow64Process2Fn = BOOL(WINAPI*)(HANDLE, USHORT*, USHORT*);
+  const auto query = reinterpret_cast<IsWow64Process2Fn>(
+      GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "IsWow64Process2"));
+  USHORT process_machine = 0;
+  USHORT native_machine = 0;
+  if (query && query(GetCurrentProcess(), &process_machine, &native_machine)) {
+    return app_dir / (native_machine == IMAGE_FILE_MACHINE_ARM64
+                          ? L"arm64" : L"x64") / kTextServiceDllName;
+  }
+  SYSTEM_INFO info = {};
+  GetNativeSystemInfo(&info);
+  // The setup helper is Win32: query the OS, not the helper process bitness.
+  return app_dir / (info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64
+                        ? L"arm64" : L"x64") / kTextServiceDllName;
+}
+
 std::vector<REGSAM> RegistryViewsForInstallDir() {
   std::vector<REGSAM> views;
   views.push_back(0);
@@ -725,7 +742,7 @@ std::wstring TypingSetupFailureMessage() {
 int RunReregister(const Options& options) {
   const fs::path app_dir(options.app_dir);
   const fs::path source32 = app_dir / kTextServiceDllName;
-  const fs::path source64 = app_dir / L"x64" / kTextServiceDllName;
+  const fs::path source64 = NativeTextServiceSource(app_dir);
   const fs::path dest32 = fs::path(GetSyswow64DirectoryPath()) / kTextServiceDllName;
   const fs::path dest64 = fs::path(GetNativeSystemDirectoryPath()) / kTextServiceDllName;
   const fs::path dest64_for_regsvr =
@@ -758,7 +775,7 @@ int RunReregister(const Options& options) {
 int RunInstall(const Options& options) {
   const fs::path app_dir(options.app_dir);
   const fs::path source32 = app_dir / kTextServiceDllName;
-  const fs::path source64 = app_dir / L"x64" / kTextServiceDllName;
+  const fs::path source64 = NativeTextServiceSource(app_dir);
   // TSF DLLs must live in system directories, or IME input will not work in
   // some games such as CS2.
   const fs::path dest32 = fs::path(GetSyswow64DirectoryPath()) / kTextServiceDllName;
@@ -776,8 +793,8 @@ int RunInstall(const Options& options) {
   }
   if (!fs::exists(source64)) {
     return ShowFailureAndReturn(
-        Bilingual(L"缺少 x64 TypeDuck 安裝檔案: " + source64.wstring(),
-                  L"Missing x64 TypeDuck payload: " + source64.wstring()),
+        Bilingual(L"缺少 64 位元 TypeDuck 安裝檔案: " + source64.wstring(),
+                  L"Missing native 64-bit TypeDuck payload: " + source64.wstring()),
         options.silent);
   }
 

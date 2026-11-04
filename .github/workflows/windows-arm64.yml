@@ -1,0 +1,112 @@
+name: Windows ARM64
+
+on:
+  push:
+    branches: [windows-arm64]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  frontend:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [Win32, x64, ARM64X]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Download host protoc
+        run: |
+          Invoke-WebRequest https://github.com/protocolbuffers/protobuf/releases/download/v33.5/protoc-33.5-win64.zip -OutFile protoc.zip
+          Expand-Archive protoc.zip protoc
+      - name: Build and test
+        run: ./scripts/Build-TypeDuckArchitecture.ps1 -Architecture '${{ matrix.arch }}' -Protoc "$PWD/protoc/bin/protoc.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-${{ matrix.arch }}
+          path: payload/
+          if-no-files-found: error
+
+  package:
+    needs: frontend
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: frontend
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: TypeDuck-HK/TypeDuck-Windows-backend
+          ref: 9c7283b35cfe93e962b808df3a24e894f5be94e4
+          path: backend
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: TypeDuck-HK/schema
+          ref: 4751662c19556b6ea32fd4a0c55b830cb9ea3045
+          path: schema
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: frontend-*
+          path: frontend/artifacts
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Test and package backend
+        working-directory: backend
+        run: |
+          go test ./...
+          if ($LASTEXITCODE) { throw 'Backend tests failed' }
+          ./scripts/build.ps1 -RimeDataSource "$env:GITHUB_WORKSPACE/schema"
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE) { throw 'Inno Setup installation failed' }
+      - name: Package Windows on Arm installer
+        working-directory: frontend
+        run: |
+          ./scripts/install.ps1 -Win32BuildDir "$PWD/artifacts/frontend-Win32" -X64BuildDir "$PWD/artifacts/frontend-x64" -Arm64XBuildDir "$PWD/artifacts/frontend-ARM64X" -MoqiImeSource "$env:GITHUB_WORKSPACE/backend/scripts/build/TypeDuckRuntime"
+          Copy-Item installer/dist/typeduck-windows-ime-setup.exe installer/dist/typeduck-windows-arm64-setup.exe
+          Get-FileHash installer/dist/typeduck-windows-arm64-setup.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  typeduck-windows-arm64-setup.exe" } | Set-Content installer/dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TypeDuck-Windows-ARM64-installer
+          path: |
+            frontend/installer/dist/typeduck-windows-arm64-setup.exe
+            frontend/installer/dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  arm-smoke:
+    needs: package
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Install, activate COM in ARM64, x64 and x86, upgrade and uninstall
+        run: ./scripts/Test-TypeDuckArmInstall.ps1 -Artifacts "$PWD/artifacts"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-ARM64-validation
+          path: arm-validation/
+          if-no-files-found: error

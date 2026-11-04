@@ -42,8 +42,13 @@ VersionInfoTextVersion={#MyAppVersion}
 DefaultDirName={autopf32}\TypeDuckIME
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+#if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\arm64\TypeDuckTextService.dll")
+ArchitecturesAllowed=x64compatible arm64
+ArchitecturesInstallIn64BitMode=x64compatible arm64
+#else
+ArchitecturesAllowed=x64os
+ArchitecturesInstallIn64BitMode=x64os
+#endif
 CloseApplications=no
 RestartApplications=no
 WizardStyle=modern
@@ -132,6 +137,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\x64"
+Type: filesandordirs; Name: "{app}\arm64"
 Type: filesandordirs; Name: "{app}\TypeDuckRuntime"
 Type: filesandordirs; Name: "{app}\resources"
 
