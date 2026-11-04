@@ -21,7 +21,7 @@ elseif(TYPEDUCK_ARM64X_MODE STREQUAL "ARM64EC")
     target_sources(MoqiTextService PRIVATE ${native_objects})
     target_link_options(MoqiTextService PRIVATE /MACHINE:ARM64X
         "/DEFARM64NATIVE:${CMAKE_CURRENT_SOURCE_DIR}/MoqiTextService.def")
-    target_link_libraries(MoqiTextService PRIVATE ${native_libraries})
+    target_link_libraries(MoqiTextService ${native_libraries})
 elseif(TYPEDUCK_ARM64X_MODE)
     message(FATAL_ERROR "Invalid TYPEDUCK_ARM64X_MODE")
 endif()
