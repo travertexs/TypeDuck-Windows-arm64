@@ -3,6 +3,11 @@ name: Windows ARM64
 on:
   push:
     branches: [windows-arm64]
+    paths-ignore:
+      - scripts/Test-TypeDuckArmInstall.ps1
+      - .github/workflows/validate-arm64.yml
+      - docs/**
+      - README.md
   workflow_dispatch:
 
 permissions:

@@ -5,6 +5,17 @@ if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm
   throw 'This test requires Windows on ARM64'
 }
 New-Item arm-validation -ItemType Directory -Force | Out-Null
+function Invoke-SetupProcess([string]$FilePath, [string]$Log) {
+  Write-Host "Running setup: $FilePath; log: $Log"
+  # Start-Process -Wait waits for descendants, including the persistent launcher.
+  $process = Start-Process -FilePath $FilePath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=`"$Log`"") -PassThru -WindowStyle Hidden
+  if (-not $process.WaitForExit(180000)) {
+    if (Test-Path -LiteralPath $Log) { Get-Content -LiteralPath $Log -Tail 100 | Write-Host }
+    throw "Setup process $($process.Id) exceeded three minutes"
+  }
+  Write-Host "Setup exited: $($process.ExitCode)"
+  return $process.ExitCode
+}
 Start-Transcript arm-validation/results.txt
 try {
   Write-Host "OS architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
@@ -17,12 +28,13 @@ try {
   $installDir = Join-Path ${env:ProgramFiles(x86)} 'TypeDuckIME'
   foreach ($pass in 'install','upgrade') {
     $log = Join-Path $PWD "arm-validation/$pass.log"
-    $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=`"$log`"") -Wait -PassThru -WindowStyle Hidden
-    if ($process.ExitCode -ne 0) { throw "$pass returned $($process.ExitCode); reboot path needs separate validation" }
+    $setupExitCode = Invoke-SetupProcess -FilePath $installer -Log $log
+    if ($setupExitCode -ne 0) { throw "$pass returned $setupExitCode; reboot path needs separate validation" }
     $expectedHash = (Get-FileHash -LiteralPath "$Artifacts/frontend-ARM64X/MoqiTextService/Release/TypeDuckTextService.dll" -Algorithm SHA256).Hash
     $installedHash = (Get-FileHash -LiteralPath "$env:WINDIR/System32/TypeDuckTextService.dll" -Algorithm SHA256).Hash
     if ($installedHash -ne $expectedHash) { throw 'Setup did not install the ARM64X system DLL' }
     foreach ($probe in @('frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe','frontend-x64/TypeDuckLoadProbe.exe','frontend-Win32/TypeDuckLoadProbe.exe')) {
+      Write-Host "Testing COM activation: $probe"
       & (Join-Path $Artifacts $probe)
       if ($LASTEXITCODE) { throw "COM activation failed: $probe" }
     }
@@ -43,8 +55,8 @@ try {
     }
   }
   $uninstallLog = Join-Path $PWD 'arm-validation/uninstall.log'
-  $process = Start-Process -FilePath "$installDir/unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=`"$uninstallLog`"") -Wait -PassThru -WindowStyle Hidden
-  if ($process.ExitCode -ne 0) { throw "Uninstall returned $($process.ExitCode)" }
+  $setupExitCode = Invoke-SetupProcess -FilePath "$installDir/unins000.exe" -Log $uninstallLog
+  if ($setupExitCode -ne 0) { throw "Uninstall returned $setupExitCode" }
   $key = 'Registry::HKEY_LOCAL_MACHINE/SOFTWARE/Classes/CLSID/{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}/InprocServer32'
   if (Test-Path -LiteralPath $key) { throw '64-bit COM registration remained after uninstall' }
   $key32 = 'Registry::HKEY_LOCAL_MACHINE/SOFTWARE/Classes/WOW6432Node/CLSID/{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}/InprocServer32'
