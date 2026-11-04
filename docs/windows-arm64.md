@@ -11,11 +11,16 @@ Rime DLL remain x64 and run under Windows 11 emulation. This is an Arm-compatibl
 package, not a fully native port of every process. Windows 10 on Arm is outside
 the supported scope of this build because the runtime requires x64 emulation.
 
-Use the `windows-arm64` branch. Its push trigger builds all components; the
-workflow also supports `workflow_dispatch` when present on the default branch.
+Use the `windows-arm64` branch. Changes to product or build files trigger the
+full build; documentation and validation-only changes do not. The workflow
+also supports `workflow_dispatch` (select `windows-arm64` as the ref).
 Download `TypeDuck-Windows-ARM64-installer` from the successful workflow run.
 It contains `typeduck-windows-arm64-setup.exe` and `SHA256SUMS.txt`.
 These fork builds are unsigned and are not an official TypeDuck release.
+
+`Validate Windows ARM64 installer` can retest an existing build without compiling
+again. Supply its numeric Actions run ID and full source commit SHA. The workflow
+checks that provenance before downloading its installer and frontend test tools.
 
 The workflow pins the backend and schema commits. C++ dependencies use the
 upstream submodule pins and versioned downloads. Build logs retain the resolved
@@ -36,6 +41,14 @@ suite as a non-blocking diagnostic artifact and reports its failure in the job
 summary. It does not claim the backend suite is green. Backend protocol tests
 and the installed-runtime typing probe remain blocking checks. This port does
 not repair those pre-existing backend discrepancies.
+
+Other existing source guards are also inconsistent with the pinned upstream
+snapshot: the candidate-data guard expects parser-limit text absent from the
+unchanged parser; the pruning guard expects the removed `appearance_themes.json`;
+and the release guard expects a schema-download layout absent from the unchanged
+release/nightly workflows. The protocol and settings-persistence source guards
+pass. These source-guard results are separate from the compiled C++ tests and
+the installed-runtime checks above.
 
 Implementation references:
 
