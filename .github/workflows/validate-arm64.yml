@@ -1,0 +1,58 @@
+name: Validate Windows ARM64 installer
+
+on:
+  push:
+    branches: [windows-arm64]
+    paths:
+      - scripts/Test-TypeDuckArmInstall.ps1
+      - .github/workflows/validate-arm64.yml
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: Run that produced the installer and frontend artifacts
+        default: '41815221383'
+        required: true
+      artifact_commit:
+        description: Expected full source commit of that build
+        default: '72b22f459405251f175a9060ccb1188a3d5d7991'
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id || '41815221383' }}
+      ARTIFACT_COMMIT: ${{ inputs.artifact_commit || '72b22f459405251f175a9060ccb1188a3d5d7991' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $run = Invoke-RestMethod "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:ARTIFACT_RUN_ID" -Headers @{Authorization="Bearer $env:GH_TOKEN"}
+          if ($run.head_sha -ne $env:ARTIFACT_COMMIT) { throw 'Artifact source commit mismatch' }
+          New-Item arm-validation -ItemType Directory -Force | Out-Null
+          @{artifact_run=$run.html_url; artifact_commit=$run.head_sha; validation_commit=$env:GITHUB_SHA} | ConvertTo-Json | Set-Content arm-validation/provenance.json
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.ARTIFACT_RUN_ID }}
+          path: artifacts
+      - name: Test installed ARM64 runtime, upgrade and uninstall
+        run: ./scripts/Test-TypeDuckArmInstall.ps1 -Artifacts "$PWD/artifacts"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-ARM64-validation
+          path: arm-validation/
+          if-no-files-found: error
