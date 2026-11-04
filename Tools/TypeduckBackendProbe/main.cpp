@@ -22,7 +22,8 @@ namespace {
 
 constexpr std::uint32_t kMaxFrameBytes = 4 * 1024 * 1024;
 constexpr DWORD kDefaultTimeoutMs = 15000;
-constexpr wchar_t kRimeGuid[] = L"{3F6B5A12-8D44-4E71-9A2E-6B4F9C1D2A30}";
+// Exercise the same zh-HK service registered by the shipped TypeDuck frontend.
+constexpr wchar_t kRimeGuid[] = L"{C6E8F5DF-6504-44F9-B7CF-17A195373A83}";
 
 struct Options {
   std::string mode;
