@@ -43,6 +43,7 @@ DefaultDirName={autopf32}\TypeDuckIME
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 #if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\arm64\TypeDuckTextService.dll")
+MinVersion=10.0.22000
 ArchitecturesAllowed=x64compatible arm64
 ArchitecturesInstallIn64BitMode=x64compatible arm64
 #else

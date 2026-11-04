@@ -29,6 +29,7 @@ if ($Architecture -ne 'ARM64X') {
   Copy-Item "$build/Release/TypeDuckLoadProbe.exe" payload
 }
 if ($Architecture -eq 'Win32') {
+  Copy-Item "$build/Tools/TypeduckBackendProbe/Release/TypeduckBackendProbe.exe" payload
   foreach ($name in 'TypeDuckLauncher.exe','TypeDuckSetupHelper.exe','TypeDuckSettings.exe','TypeDuckAbout.exe') {
     $file = @(Get-ChildItem $build -Recurse -Filter $name | Where-Object { $_.Directory.Name -eq 'Release' })
     if ($file.Count -ne 1) { throw "Expected one Release binary: $name" }

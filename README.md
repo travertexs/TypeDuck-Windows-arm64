@@ -1,5 +1,9 @@
 # TypeDuck Windows
 
+This fork's Windows 11 on Arm build is on the `windows-arm64` branch.
+See [Windows on Arm builds and validation](docs/windows-arm64.md) for the
+GitHub Actions installer, supported architectures, and remaining manual checks.
+
 TypeDuck Windows is a Cantonese input method for Windows users in Hong Kong, built on Microsoft Text Services Framework and a TypeDuck Rime runtime.
 
 TypeDuck Windows 係為香港 Windows 用戶而設嘅粵語輸入法，使用 Microsoft Text Services Framework，並配合 TypeDuck Rime Runtime 提供候選字、粵拼同字典式提示。

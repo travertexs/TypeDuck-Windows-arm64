@@ -21,12 +21,21 @@ The workflow pins the backend and schema commits. C++ dependencies use the
 upstream submodule pins and versioned downloads. Build logs retain the resolved
 dependency revisions. No release is published automatically by this workflow.
 
-Validation includes the existing C++ tests, backend Go tests, native ARM64 C++
+Validation includes the existing C++ tests, backend protocol tests, native ARM64 C++
 tests, silent installation and same-version upgrade on a Windows ARM runner,
-COM activation from ARM64, x64 and x86 processes, and uninstallation. A green
+COM activation from ARM64, x64 and x86 processes, synthetic Jyutping composition,
+candidates and commit output from the installed runtime, and uninstallation. A green
 build does not cover interactive candidate selection, every host application,
 locked-DLL reboot replacement, or desktop login/logout behavior. Those need
 an interactive device test before treating this as a production release.
+
+The unmodified pinned backend fails its full `go test ./...` baseline. Failures
+include removed legacy features, top-row/numpad fallback expectations, and tests
+depending on a developer's local installation. The workflow retains this full
+suite as a non-blocking diagnostic artifact and reports its failure in the job
+summary. It does not claim the backend suite is green. Backend protocol tests
+and the installed-runtime typing probe remain blocking checks. This port does
+not repair those pre-existing backend discrepancies.
 
 Implementation references:
 
