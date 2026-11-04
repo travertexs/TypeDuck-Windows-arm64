@@ -14,6 +14,11 @@ if ($Architecture -eq 'ARM64X') {
   cmake --build build-ARM64 --config Release --parallel 4 --target MoqiTextService TypeDuckLoadProbe TypeDuckCandidateInfo_test TypeDuckPreferences_test ProtoFraming_test ProtocolRecovery_test
   cmake @common -B build-ARM64X -A ARM64EC -DTYPEDUCK_ARM64X_MODE=ARM64EC "-DTYPEDUCK_ARM64X_INPUTS=$response"
   cmake --build build-ARM64X --config Release --parallel 4 --target MoqiTextService
+  $image = [IO.File]::ReadAllBytes("$repo/build-ARM64X/MoqiTextService/Release/TypeDuckTextService.dll")
+  $pe = [BitConverter]::ToInt32($image, 60)
+  if ([BitConverter]::ToUInt16($image, $pe + 4) -ne 0xaa64) {
+    throw 'The combined DLL is not ARM64X; check linker machine option ordering'
+  }
   New-Item payload/ARM64-tests -ItemType Directory -Force | Out-Null
   Get-ChildItem build-ARM64 -Filter '*_test.exe' -Recurse | Copy-Item -Destination payload/ARM64-tests
   Copy-Item build-ARM64/Release/TypeDuckLoadProbe.exe payload/ARM64-tests

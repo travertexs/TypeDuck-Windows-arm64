@@ -19,7 +19,9 @@ elseif(TYPEDUCK_ARM64X_MODE STREQUAL "ARM64EC")
         message(FATAL_ERROR "ARM64 linker response contains no objects or libraries")
     endif()
     target_sources(MoqiTextService PRIVATE ${native_objects})
-    target_link_options(MoqiTextService PRIVATE /MACHINE:ARM64X
+    # Preserve this lowercase spelling: CMake otherwise moves it to TargetMachine,
+    # before its default /machine:ARM64EC option, which silently overrides it.
+    target_link_options(MoqiTextService PRIVATE /machine:arm64x
         "/DEFARM64NATIVE:${CMAKE_CURRENT_SOURCE_DIR}/MoqiTextService.def")
     target_link_libraries(MoqiTextService ${native_libraries})
 elseif(TYPEDUCK_ARM64X_MODE)
