@@ -22,6 +22,41 @@ permissions:
   actions: read
 
 jobs:
+  linker-check:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check ARM64X linker configuration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item linker-check -ItemType Directory | Out-Null
+          'extern "C" __declspec(dllexport) int Probe() { return 42; }' | Set-Content linker-check/test.cpp
+          "EXPORTS`nProbe" | Set-Content linker-check/MoqiTextService.def
+          @'
+          cmake_minimum_required(VERSION 3.21)
+          project(LinkerCheck LANGUAGES CXX)
+          set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
+          add_library(MoqiTextService SHARED test.cpp MoqiTextService.def)
+          include("../cmake/arm64x.cmake")
+          '@ | Set-Content linker-check/CMakeLists.txt
+          cmake -S linker-check -B linker-check/arm -G 'Visual Studio 17 2022' -A ARM64 -DTYPEDUCK_ARM64X_MODE=ARM64 "-DTYPEDUCK_ARM64X_INPUTS=$PWD/linker-check/arm.rsp"
+          cmake --build linker-check/arm --config Release
+          foreach ($mode in 'upper','lower') {
+            if ($mode -eq 'lower') {
+              (Get-Content cmake/arm64x.cmake -Raw).Replace('/MACHINE:ARM64X','/machine:arm64x') | Set-Content cmake/arm64x.cmake
+            }
+            cmake -S linker-check -B "linker-check/$mode" -G 'Visual Studio 17 2022' -A ARM64EC -DTYPEDUCK_ARM64X_MODE=ARM64EC "-DTYPEDUCK_ARM64X_INPUTS=$PWD/linker-check/arm.rsp"
+            Select-String -Path "linker-check/$mode/MoqiTextService.vcxproj" -Pattern 'TargetMachine|AdditionalOptions'
+            cmake --build "linker-check/$mode" --config Release --verbose
+            $bytes = [IO.File]::ReadAllBytes("$PWD/linker-check/$mode/Release/MoqiTextService.dll")
+            $pe = [BitConverter]::ToInt32($bytes,60)
+            Write-Host ('{0} machine: 0x{1:x4}' -f $mode,[BitConverter]::ToUInt16($bytes,$pe+4))
+          }
   validate:
     runs-on: windows-11-arm
     timeout-minutes: 15
