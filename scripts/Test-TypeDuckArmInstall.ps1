@@ -26,6 +26,7 @@ try {
   }
   $installer = Join-Path $Artifacts 'TypeDuck-Windows-ARM64-installer/typeduck-windows-arm64-setup.exe'
   $installDir = Join-Path ${env:ProgramFiles(x86)} 'TypeDuckIME'
+  $probeFailures = [System.Collections.Generic.List[string]]::new()
   foreach ($pass in 'install','upgrade') {
     $log = Join-Path $PWD "arm-validation/$pass.log"
     $setupExitCode = Invoke-SetupProcess -FilePath $installer -Log $log
@@ -35,8 +36,13 @@ try {
     if ($installedHash -ne $expectedHash) { throw 'Setup did not install the ARM64X system DLL' }
     foreach ($probe in @('frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe','frontend-x64/TypeDuckLoadProbe.exe','frontend-Win32/TypeDuckLoadProbe.exe')) {
       Write-Host "Testing COM activation: $probe"
-      & (Join-Path $Artifacts $probe)
-      if ($LASTEXITCODE) { throw "COM activation failed: $probe" }
+      try {
+        & (Join-Path $Artifacts $probe)
+        if ($LASTEXITCODE) { throw "COM activation failed: $probe" }
+      } catch {
+        $probeFailures.Add("${pass}: ${probe}: $_")
+        Write-Warning $probeFailures[$probeFailures.Count - 1]
+      }
     }
     if ($pass -eq 'install') {
       $runtime = Join-Path $installDir 'TypeDuckRuntime'
@@ -50,8 +56,13 @@ try {
         schema_commit = '4751662c19556b6ea32fd4a0c55b830cb9ea3045'
       } | ConvertTo-Json | Set-Content -LiteralPath $manifest
       $manifestHash = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash
-      & "$Artifacts/frontend-Win32/TypeduckBackendProbe.exe" --server-exe $server --working-dir $runtime --runtime-manifest $manifest --runtime-manifest-sha256 $manifestHash --adapter-root $runtime --adapter-commit 9c7283b35cfe93e962b808df3a24e894f5be94e4 --adapter-server-sha256 $serverHash --output "$PWD/arm-validation/typing-proof.json" --frames "$PWD/arm-validation/synthetic-typing-frames.ndjson" --timeout-ms 60000
-      if ($LASTEXITCODE) { throw 'Packaged engine composition/candidate/commit probe failed on ARM64' }
+      try {
+        & "$Artifacts/frontend-Win32/TypeduckBackendProbe.exe" --server-exe $server --working-dir $runtime --runtime-manifest $manifest --runtime-manifest-sha256 $manifestHash --adapter-root $runtime --adapter-commit 9c7283b35cfe93e962b808df3a24e894f5be94e4 --adapter-server-sha256 $serverHash --output "$PWD/arm-validation/typing-proof.json" --frames "$PWD/arm-validation/synthetic-typing-frames.ndjson" --timeout-ms 60000
+        if ($LASTEXITCODE) { throw 'Packaged engine composition/candidate/commit probe failed on ARM64' }
+      } catch {
+        $probeFailures.Add("Installed engine: $_")
+        Write-Warning $probeFailures[$probeFailures.Count - 1]
+      }
     }
   }
   $uninstallLog = Join-Path $PWD 'arm-validation/uninstall.log'
@@ -61,6 +72,7 @@ try {
   if (Test-Path -LiteralPath $key) { throw '64-bit COM registration remained after uninstall' }
   $key32 = 'Registry::HKEY_LOCAL_MACHINE/SOFTWARE/Classes/WOW6432Node/CLSID/{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}/InprocServer32'
   if (Test-Path -LiteralPath $key32) { throw '32-bit COM registration remained after uninstall' }
+  if ($probeFailures.Count) { throw ($probeFailures -join "`n") }
 } finally {
   Stop-Transcript
 }
