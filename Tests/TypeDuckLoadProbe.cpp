@@ -53,13 +53,34 @@ int Probe(const wchar_t* locale, bool testPackets) {
   CHECK_HR(CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&thread)));
   TfClientId client = TF_CLIENTID_NULL;
   CHECK_HR(thread->Activate(&client));
-  // Activate() on the thread manager returns the APPLICATION's client ID.
-  // Bind this manually created TIP to its own CLSID, as TSF does when loading
-  // it, so GetFunctionProvider(CLSID) can find the single-sink registration.
-  ComPtr<ITfClientId> clientIds;
-  CHECK_HR(thread.As(&clientIds));
-  CHECK_HR(clientIds->GetClientId(clsid, &client));
-  CHECK_HR(service->Activate(thread.Get(), client));
+  CHECK(locale && TypeDuckRegistration::NormalizeLocale(locale));
+  const LANGID selected = _wcsicmp(locale, L"zh-TW") == 0 ? 0x0404 : 0x0c04;
+  const LANGID old = selected == 0x0404 ? 0x0c04 : 0x0404;
+  ComPtr<ITfInputProcessorProfileMgr> profiles;
+  CHECK_HR(CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+                            IID_PPV_ARGS(&profiles)));
+  TF_INPUTPROCESSORPROFILE profile = {};
+  CHECK_HR(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected, clsid, profileId, nullptr, &profile));
+  CHECK(FAILED(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, old, clsid, profileId, nullptr, &profile)));
+  ComPtr<ITfInputProcessorProfiles> languages;
+  CHECK_HR(profiles.As(&languages));
+  BOOL enabled = FALSE;
+  CHECK_HR(languages->IsEnabledLanguageProfile(clsid, selected, profileId, &enabled));
+  CHECK(enabled);
+  std::printf("PASS selected language 0x%04x enabled; old language 0x%04x absent\n", selected, old);
+
+  // Let TSF activate the registered TIP. Calling Activate() on an unrelated
+  // CoCreateInstance object does not add it to TSF's active provider list.
+  ComPtr<ITfDocumentMgr> document;
+  ComPtr<ITfContext> context;
+  TfEditCookie cookie = TF_INVALID_COOKIE;
+  CHECK_HR(thread->CreateDocumentMgr(&document));
+  CHECK_HR(document->CreateContext(client, 0, nullptr, &context, &cookie));
+  CHECK_HR(document->Push(context.Get()));
+  CHECK_HR(thread->SetFocus(document.Get()));
+  CHECK_HR(languages->ChangeCurrentLanguage(selected));
+  CHECK_HR(profiles->ActivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected,
+                                    clsid, profileId, nullptr, TF_IPPMF_FORPROCESS));
   ComPtr<ITfFunctionProvider> discovered;
   CHECK_HR(thread->GetFunctionProvider(clsid, &discovered));
   CHECK_HR(discovered->GetFunction(GUID_NULL, __uuidof(ITfFnGetPreferredTouchKeyboardLayout), &unknown));
@@ -86,36 +107,24 @@ int Probe(const wchar_t* locale, bool testPackets) {
     value.lVal = 0;
     CHECK_HR(openClose->SetValue(client, &value));
     ComPtr<ITfKeyEventSink> sink;
-    CHECK_HR(service.As(&sink));
+    CHECK_HR(discovered.As(&sink));
     CHECK(ProbeTouchPackets(sink.Get()) == 0);
   }
   discovered.Reset();
-  CHECK_HR(service->Deactivate());
+  CHECK_HR(profiles->DeactivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected,
+                                      clsid, profileId, nullptr, TF_IPPMF_FORPROCESS));
   CHECK(FAILED(thread->GetFunctionProvider(clsid, &discovered)));
-  CHECK_HR(service->Activate(thread.Get(), client));
+  CHECK_HR(profiles->ActivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected,
+                                    clsid, profileId, nullptr, TF_IPPMF_FORPROCESS));
   CHECK_HR(thread->GetFunctionProvider(clsid, &discovered));
   discovered.Reset();
-  CHECK_HR(service->Deactivate());
+  CHECK_HR(profiles->DeactivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected,
+                                      clsid, profileId, nullptr, TF_IPPMF_FORPROCESS));
+  CHECK_HR(thread->SetFocus(nullptr));
+  CHECK_HR(document->Pop(TF_POPF_ALL));
   CHECK_HR(thread->Deactivate());
   std::puts("PASS TSF function-provider advice, deactivation and reactivation");
 
-  if (locale) {
-    CHECK(TypeDuckRegistration::NormalizeLocale(locale) != nullptr);
-    const LANGID selected = _wcsicmp(locale, L"zh-TW") == 0 ? 0x0404 : 0x0c04;
-    const LANGID old = selected == 0x0404 ? 0x0c04 : 0x0404;
-    ComPtr<ITfInputProcessorProfileMgr> profiles;
-    CHECK_HR(CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
-                              IID_PPV_ARGS(&profiles)));
-    TF_INPUTPROCESSORPROFILE profile = {};
-    CHECK_HR(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected, clsid, profileId, nullptr, &profile));
-    CHECK(FAILED(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, old, clsid, profileId, nullptr, &profile)));
-    ComPtr<ITfInputProcessorProfiles> enabled;
-    CHECK_HR(profiles.As(&enabled));
-    BOOL isEnabled = FALSE;
-    CHECK_HR(enabled->IsEnabledLanguageProfile(clsid, selected, profileId, &isEnabled));
-    CHECK(isEnabled);
-    std::printf("PASS selected language 0x%04x enabled; old language 0x%04x absent\n", selected, old);
-  }
   return 0;
 }
 

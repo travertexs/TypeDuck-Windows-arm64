@@ -119,15 +119,17 @@ try {
   # validates staging, task arguments and the post-restart callback, without
   # claiming that a hosted runner was rebooted. Both DLL copies are this build.
   $lockedDll = [IO.File]::Open("$env:WINDIR/System32/TypeDuckTextService.dll", [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  $lockedDll32 = [IO.File]::Open("$env:WINDIR/SysWOW64/TypeDuckTextService.dll", [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
   try {
     $deferredExit = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/deferred-tw.log" -Locale 'zh-TW'
-    if ($deferredExit -ne 3010) { throw "Locked DLL update should request restart, returned $deferredExit" }
     $saved = Get-ItemProperty 'HKLM:\Software\TypeDuckIME'
+    $saved | Format-List | Out-File "$PWD/arm-validation/deferred-registry.txt"
+    if ($deferredExit -ne 3010) { throw "Locked DLL update should request restart, returned $deferredExit" }
     if ($saved.RegistrationLocale -ne 'zh-HK' -or $saved.PendingRegistrationLocale -ne 'zh-TW') { throw 'Pending locale changed the active locale prematurely' }
     $task = Get-ScheduledTask -TaskName 'TypeDuckIME-ReRegisterTSF'
     if ($task.Actions.Arguments -notmatch '--locale zh-TW') { throw 'Restart task lost the selected language' }
     $task | Export-Clixml "$PWD/arm-validation/deferred-task.xml"
-  } finally { $lockedDll.Dispose() }
+  } finally { $lockedDll.Dispose(); $lockedDll32.Dispose() }
   $reregister = Start-Process "$installDir/TypeDuckSetupHelper.exe" -ArgumentList @('/r','/s','--appdir',"`"$installDir`"") -PassThru -WindowStyle Hidden
   if (-not $reregister.WaitForExit(60000) -or $reregister.ExitCode -ne 0) { throw 'Deferred registration callback failed' }
   & "$Artifacts/frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe" 'zh-TW'

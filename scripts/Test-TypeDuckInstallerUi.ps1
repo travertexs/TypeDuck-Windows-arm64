@@ -25,9 +25,8 @@ function Find-Control($Root, [string]$Name) {
   if ($found) { return $found }
   $hint = switch ($Name) { '下一步 Next >' { 'Next' }; '取消 Cancel' { 'Cancel' }; '是 Yes' { 'Yes' }; default { '' } }
   if ($hint) {
-    $buttons = $Root.FindAll([Windows.Automation.TreeScope]::Descendants,
-      [Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button))
-    $matches = @($buttons | Where-Object { $_.Current.Name -like "*$hint*" })
+    $buttons = $Root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+    $matches = @($buttons | Where-Object { $_.Current.Name -like "*$hint*" -and ($_.Current.ClassName -eq 'TNewButton' -or $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button) })
     if ($matches.Count -eq 1) { return $matches[0] }
   }
   return $null
