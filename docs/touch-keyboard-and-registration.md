@@ -39,6 +39,14 @@ The Windows **Small**, **Default** and **Split** keyboard modes are controlled b
 Windows; this interface cannot guarantee that Small is offered. Do not label a
 successful build or interface probe as proof that the compact keyboard works.
 
+**Interactive result (5 November 2026): Small is missing on Windows 11 Arm
+build 29698.1000 with the delivered zh-TW installation.** The menu showed only
+Default and Split. A native ARM64 debugger trace verified that the active TSF
+provider was discoverable and returned the preference when explicitly queried,
+but did not receive a touch-layout request during the reproduced interaction.
+See [the local debugging findings](compact-keyboard-local-debug.md). This
+implementation does not fulfill the compact-layout requirement on that system.
+
 Unicode `VK_PACKET` input is decoded using the documented zero scan code. ASCII
 letter/digit packets retain the corresponding physical-key meaning for the
 backend. Private-use paging packets U+F003/U+F004 are consumed on both key edges;

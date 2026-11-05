@@ -10,7 +10,10 @@ the installer again lets the user change this choice later.
 
 Touch-keyboard function-provider integration, the optimized Latin QWERTY layout
 preference, Unicode packet handling and Chinese/English mode synchronization are
-implemented. **Windows' Small/compact keyboard availability has not been proven.**
+implemented. **Windows' Small/compact keyboard failed the subsequent interactive
+test on Windows 11 Arm build 29698.1000 with zh-TW registration.** The keyboard
+offered Default and Split only. The COM test results below do not establish
+compact-layout support. See [local debugging findings](compact-keyboard-local-debug.md).
 Microsoft documents the requested layout ID `0x0804` for Simplified Chinese;
 Windows may ignore it for zh-HK or zh-TW. This API cannot force Small mode.
 
@@ -52,6 +55,7 @@ SHA-256:
 | Deferred re-registration callback | Activated TW, removed old HK registration, cleared pending state and removed the completed task |
 | Uninstall and fresh TW reinstall | Passed; both COM registry views removed on uninstall |
 | Unsupported locale rejection | Installer rejected zh-CN before installation; silent helper returned code 3 |
+| Small/compact keyboard, local Windows 11 Arm 29698.1000, zh-TW | Failed: only Default and Split; English had Small in the user's comparison |
 
 The first native process after deferred migration retained a stale TSF snapshot.
 The test verified the exact registry state and retried in a fresh process, which
@@ -63,8 +67,10 @@ during a language change may need to be reopened to refresh their cached list.
 
 - The hosted runner could not foreground the synthetic touch-input window.
   The SendInput test explicitly recorded a skip. Actual touch-key delivery,
-  candidate paging and Windows' Small keyboard menu require an interactive
-  device test. Successful COM/layout queries do not prove those UI behaviors.
+  candidate paging still require an interactive device test. The later local
+  test confirmed Small was unavailable with zh-TW on build 29698.1000; zh-HK and
+  other Windows builds were not tested interactively. Successful COM/layout
+  queries do not prove those UI behaviors.
 - The locked-DLL test released the locks and invoked the registration callback
   using the same DLL build. It did not reboot the runner, so boot-time file
   replacement and login behavior remain untested.
