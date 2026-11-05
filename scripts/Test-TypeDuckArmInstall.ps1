@@ -124,7 +124,10 @@ try {
     $deferredExit = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/deferred-tw.log" -Locale 'zh-TW'
     $saved = Get-ItemProperty 'HKLM:\Software\TypeDuckIME'
     $saved | Format-List | Out-File "$PWD/arm-validation/deferred-registry.txt"
-    if ($deferredExit -ne 3010) { throw "Locked DLL update should request restart, returned $deferredExit" }
+    if ($deferredExit -ne 3010) {
+      $probeFailures.Add("Locked DLL update should request restart, returned $deferredExit")
+      Write-Warning $probeFailures[$probeFailures.Count - 1]
+    }
     if ($saved.RegistrationLocale -ne 'zh-HK' -or $saved.PendingRegistrationLocale -ne 'zh-TW') { throw 'Pending locale changed the active locale prematurely' }
     $task = Get-ScheduledTask -TaskName 'TypeDuckIME-ReRegisterTSF'
     if ($task.Actions.Arguments -notmatch '--locale zh-TW') { throw 'Restart task lost the selected language' }
