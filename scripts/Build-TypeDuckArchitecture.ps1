@@ -11,7 +11,7 @@ $common = @('-S', $repo, '-G', 'Visual Studio 17 2022', "-DMOQI_PROTOC_EXECUTABL
 if ($Architecture -eq 'ARM64X') {
   $response = Join-Path $repo 'arm64-link.rsp'
   cmake @common -B build-ARM64 -A ARM64 -DTYPEDUCK_ARM64X_MODE=ARM64 "-DTYPEDUCK_ARM64X_INPUTS=$response"
-  cmake --build build-ARM64 --config Release --parallel 4 --target MoqiTextService TypeDuckLoadProbe TypeDuckCandidateInfo_test TypeDuckPreferences_test ProtoFraming_test ProtocolRecovery_test
+  cmake --build build-ARM64 --config Release --parallel 4 --target MoqiTextService TypeDuckLoadProbe TypeDuckCandidateInfo_test TypeDuckPreferences_test ProtoFraming_test ProtocolRecovery_test TouchKeyboard_test
   cmake @common -B build-ARM64X -A ARM64EC -DTYPEDUCK_ARM64X_MODE=ARM64EC "-DTYPEDUCK_ARM64X_INPUTS=$response"
   cmake --build build-ARM64X --config Release --parallel 4 --target MoqiTextService
   $image = [IO.File]::ReadAllBytes("$repo/build-ARM64X/MoqiTextService/Release/TypeDuckTextService.dll")

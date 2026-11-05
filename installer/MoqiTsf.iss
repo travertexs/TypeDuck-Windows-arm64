@@ -162,6 +162,7 @@ var
   HelperUninstallNeedsRestart: Boolean;
   HadExistingInstall: Boolean;
   DeleteUserDataOnUninstall: Boolean;
+  RegistrationPage: TInputOptionWizardPage;
 
 function Bilingual(const Zh: String; const En: String): String;
 begin
@@ -181,8 +182,57 @@ begin
     'This input method is developed by the Department of Linguistics and Modern Language Studies, the Education University of Hong Kong. Special thanks to the Standing Committee on Language Education and Research for funding this project.';
 end;
 
-procedure InitializeWizard;
+function ValidRegistrationLocale(const Locale: String): Boolean;
 begin
+  Result := (CompareText(Locale, 'zh-HK') = 0) or (CompareText(Locale, 'zh-TW') = 0);
+end;
+
+function SavedRegistrationLocale: String;
+begin
+  Result := '';
+  if not RegQueryStringValue(HKLM64, 'Software\TypeDuckIME', 'PendingRegistrationLocale', Result) then
+    RegQueryStringValue(HKLM32, 'Software\TypeDuckIME', 'PendingRegistrationLocale', Result);
+  if not ValidRegistrationLocale(Result) then
+  begin
+    if not RegQueryStringValue(HKLM64, 'Software\TypeDuckIME', 'RegistrationLocale', Result) then
+      RegQueryStringValue(HKLM32, 'Software\TypeDuckIME', 'RegistrationLocale', Result);
+  end;
+  if not ValidRegistrationLocale(Result) then Result := 'zh-HK';
+end;
+
+function InitializeSetup: Boolean;
+var
+  RequestedLocale: String;
+begin
+  RequestedLocale := ExpandConstant('{param:IMELOCALE|}');
+  Result := (RequestedLocale = '') or ValidRegistrationLocale(RequestedLocale);
+  if not Result then
+    SuppressibleMsgBox(Bilingual('IMELOCALE 必須為 zh-HK 或 zh-TW。',
+      'IMELOCALE must be zh-HK or zh-TW.'), mbError, MB_OK, IDOK);
+end;
+
+function SelectedRegistrationLocale: String;
+begin
+  if RegistrationPage.SelectedValueIndex = 1 then Result := 'zh-TW'
+  else Result := 'zh-HK';
+end;
+
+procedure InitializeWizard;
+var
+  Locale: String;
+begin
+  RegistrationPage := CreateInputOptionPage(wpWelcome,
+    'Windows 語言 / Windows language',
+    '選擇 TypeDuck 的註冊語言 / Choose the language for TypeDuck',
+    Bilingual('選擇 TypeDuck 在 Windows 輸入法清單中使用的語言。粵拼輸入及個人字典維持不變。更新時可更改此選項。',
+      'Choose the Windows language for TypeDuck. Cantonese typing and your dictionary stay the same. You can change this when updating.'),
+    True, False);
+  RegistrationPage.Add('中文（香港）/ Chinese (Hong Kong) - zh-HK');
+  RegistrationPage.Add('中文（台灣）/ Chinese (Taiwan) - zh-TW');
+  Locale := ExpandConstant('{param:IMELOCALE|}');
+  if Locale = '' then Locale := SavedRegistrationLocale;
+  if CompareText(Locale, 'zh-TW') = 0 then RegistrationPage.SelectedValueIndex := 1
+  else RegistrationPage.SelectedValueIndex := 0;
   WizardForm.WelcomeLabel1.Caption := Bilingual('歡迎使用 TypeDuck', 'Welcome to TypeDuck');
   WizardForm.WelcomeLabel1.Top := ScaleY(4);
   WizardForm.WelcomeLabel1.Height := ScaleY(52);
@@ -191,6 +241,18 @@ begin
   WizardForm.WelcomeLabel2.Top := ScaleY(58);
   WizardForm.WelcomeLabel2.Height := ScaleY(300);
   WizardForm.WelcomeLabel2.Font.Size := 9;
+end;
+
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
+  MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := MemoDirInfo + NewLine + NewLine +
+    'Windows 語言 / Windows language: ' + SelectedRegistrationLocale;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  if HelperInstallFailed then Result := 10 else Result := 0;
 end;
 
 function InstallFinishedText: String;
@@ -376,6 +438,7 @@ function BuildInstallSetupHelperParameters(const Action: String): String;
 begin
   Result := Action + ' /s';
   Result := Result + ' --appdir "' + ExpandConstant('{app}') + '"';
+  Result := Result + ' --locale ' + SelectedRegistrationLocale;
 end;
 
 function BuildUninstallSetupHelperParameters(const Action: String): String;
@@ -387,19 +450,19 @@ end;
 procedure HandleInstallSetupHelperFailure;
 begin
   HelperInstallFailed := True;
-  MsgBox(Bilingual(
+  SuppressibleMsgBox(Bilingual(
     'TypeDuck 未能完成安裝。請重新啟動電腦，然後再次執行安裝程式。',
     'TypeDuck could not finish installation. Please restart your computer, then run the installer again.'),
-    mbError, MB_OK);
+    mbError, MB_OK, IDOK);
 end;
 
 procedure HandleUninstallSetupHelperFailure;
 begin
   HelperUninstallFailed := True;
-  MsgBox(Bilingual(
+  SuppressibleMsgBox(Bilingual(
     'TypeDuck 未能完成解除安裝。請重新啟動電腦，然後再次執行解除安裝。',
     'TypeDuck could not finish uninstalling. Please restart your computer, then run uninstall again.'),
-    mbError, MB_OK);
+    mbError, MB_OK, IDOK);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

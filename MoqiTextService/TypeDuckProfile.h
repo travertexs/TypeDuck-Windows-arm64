@@ -8,6 +8,7 @@
 
 namespace Moqi {
 namespace TypeDuck {
+HRESULT removeOtherLanguageProfile();
 
 extern const GUID kTextServiceClsid;
 extern const GUID kProfileGuid;

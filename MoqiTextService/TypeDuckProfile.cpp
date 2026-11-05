@@ -1,4 +1,5 @@
 #include "TypeDuckProfile.h"
+#include "../TypeDuckRegistration.h"
 
 namespace Moqi {
 namespace TypeDuck {
@@ -96,7 +97,7 @@ const GUID kTextServiceClsid = {
     0x47b5,
     {0xa5, 0xcc, 0x6e, 0x47, 0xf8, 0x6b, 0x9d, 0x18}};
 
-// TypeDuck Cantonese zh-HK profile GUID {C6E8F5DF-6504-44F9-B7CF-17A195373A83}
+// Stable TypeDuck Cantonese profile GUID, shared by zh-HK and zh-TW registrations.
 const GUID kProfileGuid = {
     0xc6e8f5df,
     0x6504,
@@ -112,11 +113,11 @@ const wchar_t* profileDisplayName() {
 }
 
 const wchar_t* localeName() {
-  return L"zh-HK";
+  return TypeDuckRegistration::SelectedLocale();
 }
 
 const wchar_t* fallbackLocaleName() {
-  return L"zh-Hant-HK";
+  return _wcsicmp(localeName(), L"zh-TW") == 0 ? L"zh-Hant-TW" : L"zh-Hant-HK";
 }
 
 const wchar_t* deployedDllName() {

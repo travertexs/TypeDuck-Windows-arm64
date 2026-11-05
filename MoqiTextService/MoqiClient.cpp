@@ -18,6 +18,7 @@
 //
 
 #include "MoqiClient.h"
+#include "TouchKeyboard.h"
 #include "libIME2/src/Utils.h"
 #include "libIME2/src/DebugLogConfig.h"
 #include "../proto/ProtoFraming.h"
@@ -626,7 +627,7 @@ void Client::addKeyEventToRpcRequest(moqi::protocol::ClientRequest &request,
                                      Ime::KeyEvent &keyEvent) {
   auto *protoKeyEvent = request.mutable_key_event();
   protoKeyEvent->set_char_code(keyEvent.charCode());
-  protoKeyEvent->set_key_code(keyEvent.keyCode());
+  protoKeyEvent->set_key_code(TouchKeyboard::EngineKeyCode(keyEvent.keyCode(), keyEvent.charCode()));
   protoKeyEvent->set_repeat_count(keyEvent.repeatCount());
   protoKeyEvent->set_scan_code(keyEvent.scanCode());
   protoKeyEvent->set_is_extended(keyEvent.isExtended());
@@ -1258,7 +1259,7 @@ bool Client::selectCandidate(int index) {
   return true;
 }
 
-bool Client::changePage(bool backward) {
+bool Client::changePage(bool backward, Ime::EditSession* session) {
   auto req = createRpcRequest("changePage");
   req.set_page_backward(backward);
 
@@ -1266,7 +1267,7 @@ bool Client::changePage(bool backward) {
   if (!callRpcMethod(req, ret)) {
     return false;
   }
-  return applyAsyncResponse(ret);
+  return session ? handleRpcResponse(ret, session) : applyAsyncResponse(ret);
 }
 
 bool Client::onPreservedKey(const GUID &guid) {

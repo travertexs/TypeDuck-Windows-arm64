@@ -1,0 +1,15 @@
+diff --git a/src/KeyEvent.cpp b/src/KeyEvent.cpp
+--- a/src/KeyEvent.cpp
++++ b/src/KeyEvent.cpp
+@@ -41,7 +41,10 @@ KeyEvent::KeyEvent(UINT type, WPARAM wp, LPARAM lp):
+     ::memcpy(translatedStates, keyStates_, sizeof(translatedStates));
+     translatedStates[VK_CONTROL] = 0;
+     translatedStates[VK_MENU] = 0;
+-    const int translated = ::ToUnicodeEx(keyCode_, scanCode(), translatedStates,
++    // SendInput Unicode packets (including the touch keyboard's F003/F004
++    // paging commands) require a zero scan code, per the TSF IME contract.
++    const UINT translationScanCode = keyCode_ == VK_PACKET ? 0 : scanCode();
++    const int translated = ::ToUnicodeEx(keyCode_, translationScanCode, translatedStates,
+                                          result, ARRAYSIZE(result), 0,
+                                          ::GetKeyboardLayout(0));
+     if(translated == 1)

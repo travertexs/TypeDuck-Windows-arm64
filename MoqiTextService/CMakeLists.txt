@@ -24,7 +24,10 @@ add_library(MoqiTextService SHARED
     MoqiImeModule.cpp
     MoqiImeModule.h
     TypeDuckProfile.cpp
+    ProfileRegistration.cpp
     TypeDuckProfile.h
+    TouchKeyboard.cpp
+    TouchKeyboard.h
     TypeDuckCandidateInfo.cpp
     TypeDuckCandidateInfo.h
     MoqiTextService.cpp
@@ -53,6 +56,7 @@ target_link_libraries(MoqiTextService
     libIME2_static
     ${MOQI_PROTOBUF_TARGET}
     jsoncpp_lib_static
+    oleaut32
 )
 
 include("${CMAKE_SOURCE_DIR}/cmake/arm64x.cmake")

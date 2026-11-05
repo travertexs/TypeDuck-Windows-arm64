@@ -12,7 +12,7 @@ Do not reference local checkout paths in documentation, plans, commits, or revie
 ## Current Product Truth
 
 - TypeDuck Windows is a separate v1 product.
-- The installed IME profile is Chinese (Traditional, Hong Kong) / `zh-HK`.
+- The installer selects Chinese (Traditional, Hong Kong) / `zh-HK` or Chinese (Traditional, Taiwan) / `zh-TW`. New installs default to `zh-HK`; updates preserve the saved choice unless changed.
 - The user-facing profile name is `TypeDuck 粵語輸入法 / TypeDuck Cantonese IME`.
 - The primary TSF profile GUID is `{C6E8F5DF-6504-44F9-B7CF-17A195373A83}`.
 - User-facing strings must be bilingual Traditional Hong Kong Chinese and English.
@@ -188,7 +188,7 @@ Native Rime tests are environment-gated. Use `MOQI_RIME_PACKAGE_DIR`, `MOQI_RIME
 
 ## Review Checklist
 
-- Does the change preserve `zh-HK` TypeDuck profile registration?
+- Does the change preserve the selected `zh-HK` or `zh-TW` TypeDuck registration and migrate only this IME when the installer choice changes?
 - Are all user-facing strings bilingual Traditional Hong Kong Chinese and English?
 - Are frontend and backend protobuf schemas still compatible?
 - Are generated protobuf files updated only through generation?

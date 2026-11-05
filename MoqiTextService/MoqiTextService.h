@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <ctffunc.h>
 
 
 namespace Moqi {
@@ -78,12 +79,23 @@ enum class CandidateColorRole {
 	DictionaryScrollThumb,
 };
 
-class TextService: public Ime::TextService {
+class TextService: public Ime::TextService,
+                   public ITfFunctionProvider,
+                   public ITfFnGetPreferredTouchKeyboardLayout {
 	friend class Client;
 public:
 	static constexpr bool kTypeDuckInlinePreedit = true;
 
 	TextService(ImeModule* module);
+
+	STDMETHODIMP QueryInterface(REFIID iid, void** result) override;
+	STDMETHODIMP_(ULONG) AddRef() override { return Ime::TextService::AddRef(); }
+	STDMETHODIMP_(ULONG) Release() override { return Ime::TextService::Release(); }
+	STDMETHODIMP GetType(GUID* guid) override;
+	STDMETHODIMP GetDescription(BSTR* description) override;
+	STDMETHODIMP GetFunction(REFGUID guid, REFIID iid, IUnknown** result) override;
+	STDMETHODIMP GetDisplayName(BSTR* name) override;
+	STDMETHODIMP GetLayout(TKBLayoutType* type, WORD* id) override;
 
 	virtual void onActivate();
 	virtual void onDeactivate();
@@ -301,6 +313,11 @@ public:
 
 private:
 	virtual ~TextService(void);  // COM object should only be deleted using Release()
+	void adviseTouchKeyboard();
+	void unadviseTouchKeyboard();
+	void syncTouchKeyboardMode(bool opened);
+	bool touchKeyboardAdvised_ = false;
+	DWORD touchModeCookie_ = TF_INVALID_COOKIE;
 
 	void onMessageTimeout();
 	static void CALLBACK onMessageTimeout(HWND hwnd, UINT msg, UINT_PTR id, DWORD time);

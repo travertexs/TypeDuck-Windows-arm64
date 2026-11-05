@@ -63,7 +63,7 @@ public:
 	bool onPreservedKey(const GUID& guid, Ime::EditSession* session);
 	bool highlightCandidate(int index);
 	bool selectCandidate(int index);
-	bool changePage(bool backward);
+	bool changePage(bool backward, Ime::EditSession* session = nullptr);
 
 	bool onCommand(UINT id, Ime::TextService::CommandType type);
 

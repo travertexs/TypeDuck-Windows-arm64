@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "../TypeDuckRegistration.h"
 
 namespace fs = std::filesystem;
 
@@ -32,6 +33,7 @@ struct Options {
   Action action = Action::kHelp;
   bool silent = false;
   std::wstring app_dir;
+  std::wstring locale;
 };
 
 struct EnvironmentVariableSnapshot {
@@ -349,9 +351,10 @@ bool RunProcess(const std::wstring& application_path,
 bool RunRegsvr(const fs::path& regsvr_path,
                const fs::path& dll_path_for_process,
                const fs::path& program_dir,
-               const bool unregister) {
+               const bool unregister,
+               const std::wstring& locale = L"") {
   if (!fs::exists(dll_path_for_process)) {
-    return true;
+    return unregister;
   }
 
   std::wstring command = QuoteCommandLineArgument(regsvr_path.wstring());
@@ -365,11 +368,15 @@ bool RunRegsvr(const fs::path& regsvr_path,
   const EnvironmentVariableSnapshot previous_program_dir =
       CaptureEnvironmentVariable(kProgramDirEnvVar);
   SetEnvironmentVariableW(kProgramDirEnvVar, program_dir.c_str());
+  const auto previous_locale = CaptureEnvironmentVariable(TypeDuckRegistration::kLocaleEnvironment);
+  SetEnvironmentVariableW(TypeDuckRegistration::kLocaleEnvironment,
+                          locale.empty() ? nullptr : locale.c_str());
 
   DWORD exit_code = 0;
   const bool ran =
       RunProcess(regsvr_path.wstring(), mutable_command, working_dir, &exit_code);
   RestoreEnvironmentVariable(previous_program_dir);
+  RestoreEnvironmentVariable(previous_locale);
   if (!ran) {
     return false;
   }
@@ -548,7 +555,7 @@ bool ScheduleReregisterTask(const Options& options, std::wstring& error) {
       fs::path(GetNativeSystemDirectoryForChildProcess()) / L"schtasks.exe";
   const std::wstring task_command =
       QuoteCommandLineArgument(GetModulePath()) + L" /r /s --appdir " +
-      QuoteCommandLineArgument(options.app_dir);
+      QuoteCommandLineArgument(options.app_dir) + L" --locale " + options.locale;
   std::wstring command = QuoteCommandLineArgument(schtasks.wstring()) +
                          L" /Create /TN " +
                          QuoteCommandLineArgument(kReregisterTaskName) +
@@ -710,6 +717,50 @@ bool PersistInstallDirectory(const fs::path& app_dir) {
   return wrote_all;
 }
 
+bool WriteRegistrationLocale(const wchar_t* valueName, const std::wstring& locale) {
+  bool success = true;
+  for (const REGSAM view : RegistryViewsForInstallDir()) {
+    HKEY key = nullptr;
+    LSTATUS result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, TypeDuckRegistration::kKey,
+                                    0, nullptr, 0, KEY_SET_VALUE | view, nullptr, &key, nullptr);
+    if (result == ERROR_SUCCESS) {
+      if (locale.empty()) {
+        result = RegDeleteValueW(key, valueName);
+        if (result == ERROR_FILE_NOT_FOUND) result = ERROR_SUCCESS;
+      } else {
+        result = RegSetValueExW(key, valueName, 0, REG_SZ,
+                               reinterpret_cast<const BYTE*>(locale.c_str()),
+                               static_cast<DWORD>((locale.size() + 1) * sizeof(wchar_t)));
+      }
+      RegCloseKey(key);
+    }
+    success = result == ERROR_SUCCESS && success;
+  }
+  return success;
+}
+
+bool RegisterBothArchitectures(const Options& options,
+                               const fs::path& regsvr32, const fs::path& dest32,
+                               const fs::path& regsvr64, const fs::path& dest64) {
+  auto previous = TypeDuckRegistration::ReadLocale();
+  // Installers predating locale selection always registered zh-HK.
+  if (previous.empty()) previous = L"zh-HK";
+  const auto registerLocale = [&](const std::wstring& locale) {
+    const bool registered32 = RunRegsvr(regsvr32, dest32, options.app_dir, false, locale);
+    const bool registered64 = RunRegsvr(regsvr64, dest64, options.app_dir, false, locale);
+    return registered32 && registered64;
+  };
+  if (!registerLocale(options.locale) ||
+      !WriteRegistrationLocale(TypeDuckRegistration::kLocaleValue, options.locale)) {
+    // Keep the previous usable locale when either registration fails. A failed
+    // rollback is still a setup failure, never reported as a successful update.
+    registerLocale(previous);
+    WriteRegistrationLocale(TypeDuckRegistration::kLocaleValue, previous);
+    return false;
+  }
+  return WriteRegistrationLocale(TypeDuckRegistration::kPendingLocaleValue, L"");
+}
+
 void DeleteInstallDirectoryForView(const REGSAM view) {
   HKEY key = nullptr;
   const LSTATUS open_status = RegOpenKeyExW(
@@ -762,10 +813,7 @@ int RunReregister(const Options& options) {
         options.silent);
   }
 
-  if (!RunRegsvr(regsvr32, dest32, app_dir, false)) {
-    return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
-  }
-  if (!RunRegsvr(regsvr64, dest64_for_regsvr, app_dir, false)) {
+  if (!RegisterBothArchitectures(options, regsvr32, dest32, regsvr64, dest64_for_regsvr)) {
     return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
   }
   DeleteReregisterTask();
@@ -852,16 +900,16 @@ int RunInstall(const Options& options) {
 
   if (reboot_required) {
     std::wstring schedule_error;
+    if (!WriteRegistrationLocale(TypeDuckRegistration::kPendingLocaleValue, options.locale))
+      return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
     if (!ScheduleReregisterTask(options, schedule_error)) {
+      WriteRegistrationLocale(TypeDuckRegistration::kPendingLocaleValue, L"");
       return ShowFailureAndReturn(schedule_error, options.silent);
     }
     return kExitRestartRequired;
   }
 
-  if (!RunRegsvr(regsvr32, dest32, app_dir, false)) {
-    return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
-  }
-  if (!RunRegsvr(regsvr64, dest64_for_regsvr, app_dir, false)) {
+  if (!RegisterBothArchitectures(options, regsvr32, dest32, regsvr64, dest64_for_regsvr)) {
     return ShowFailureAndReturn(TypingSetupFailureMessage(), options.silent);
   }
   return kExitSuccess;
@@ -880,6 +928,8 @@ int RunUninstall(const Options& options) {
   RunRegsvr(regsvr32, dest32, app_dir, true);
   RunRegsvr(regsvr64, dest64_for_regsvr, app_dir, true);
   DeleteInstallDirectoryRegistryValue();
+  WriteRegistrationLocale(TypeDuckRegistration::kLocaleValue, L"");
+  WriteRegistrationLocale(TypeDuckRegistration::kPendingLocaleValue, L"");
 
   bool reboot_required = false;
   if (!DeleteFileWithFallback(dest32, reboot_required)) {
@@ -901,7 +951,7 @@ int RunUninstall(const Options& options) {
 
 void ShowUsage() {
   const std::wstring help_text =
-      L"用法 / Usage: TypeDuckSetupHelper.exe /i|/r|/u [/s] [--appdir <path>]\n"
+      L"用法 / Usage: TypeDuckSetupHelper.exe /i|/r|/u [/s] [--appdir <path>] [--locale zh-HK|zh-TW]\n"
       L"  /i       安裝或更新 TypeDuck TSF DLLs / Install or upgrade the TypeDuck TSF DLLs.\n"
       L"  /r       重啟後重新註冊 TSF DLLs / Register the TSF DLLs after a reboot.\n"
       L"  /u       解除安裝 TSF DLLs / Uninstall the TSF DLLs.\n"
@@ -950,6 +1000,12 @@ bool ParseOptions(const std::vector<std::wstring>& args,
         return false;
       }
       options.app_dir = args[++i];
+    } else if (arg == L"--locale") {
+      if (i + 1 >= args.size() || !TypeDuckRegistration::NormalizeLocale(args[i + 1])) {
+        error = Bilingual(L"--locale 必須為 zh-HK 或 zh-TW。", L"--locale must be zh-HK or zh-TW.");
+        return false;
+      }
+      options.locale = TypeDuckRegistration::NormalizeLocale(args[++i]);
     } else if (arg.rfind(L"--appdir=", 0) == 0) {
       options.app_dir = arg.substr(9);
     } else {
@@ -964,6 +1020,11 @@ bool ParseOptions(const std::vector<std::wstring>& args,
     error = Bilingual(L"未指定動作。", L"No action specified.");
     return false;
   }
+  if (options.locale.empty()) {
+    options.locale = TypeDuckRegistration::ReadLocale(TypeDuckRegistration::kPendingLocaleValue);
+    if (options.locale.empty()) options.locale = TypeDuckRegistration::ReadLocale();
+    if (options.locale.empty()) options.locale = L"zh-HK";
+  }
   return true;
 }
 
@@ -972,10 +1033,11 @@ bool ParseOptions(const std::vector<std::wstring>& args,
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   const std::vector<std::wstring> args = GetCommandLineArguments();
   Options options;
+  for (const auto& arg : args) if (arg == L"/s") options.silent = true;
   std::wstring error;
   if (!ParseOptions(args, options, error)) {
-    ShowMessage(error, kSetupHelperCaption, MB_ICONERROR | MB_OK, false);
-    ShowUsage();
+    ShowMessage(error, kSetupHelperCaption, MB_ICONERROR | MB_OK, options.silent);
+    if (!options.silent) ShowUsage();
     return kExitInvalidArgs;
   }
 

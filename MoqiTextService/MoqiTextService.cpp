@@ -18,6 +18,7 @@
 //
 
 #include "MoqiTextService.h"
+#include "TouchKeyboard.h"
 #include <assert.h>
 #include <string>
 #include <algorithm>
@@ -623,6 +624,7 @@ TextService::~TextService(void) {
 
 // virtual
 void TextService::onActivate() {
+	adviseTouchKeyboard();
 	std::wostringstream log;
 	log << L"[onActivate] exe=" << processBaseName(currentProcessPath())
 	    << L" flags=0x" << std::hex << activateFlags() << std::dec
@@ -643,6 +645,7 @@ void TextService::onActivate() {
 
 // virtual
 void TextService::onDeactivate() {
+	unadviseTouchKeyboard();
 	logDebug(L"[onDeactivate] exe=" + processBaseName(currentProcessPath()) + L" " + foregroundWindowSummary());
 	if(client_) {
 		closeClient();
@@ -698,6 +701,8 @@ void TextService::onKillThreadFocus() {
 
 // virtual
 bool TextService::filterKeyDown(Ime::KeyEvent& keyEvent) {
+	// Never let the touch keyboard's private paging characters reach an app.
+	if (TouchKeyboard::IsPageKey(keyEvent.keyCode(), keyEvent.charCode())) return true;
 	logDebug(L"[filterKeyDown] " + keyEventSummary(keyEvent) +
 		L" client=" + boolText(client_ != nullptr) +
 		L" keyboard_open=" + boolText(isKeyboardOpened()) +
@@ -729,6 +734,13 @@ bool TextService::filterKeyDown(Ime::KeyEvent& keyEvent) {
 
 // virtual
 bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) {
+	if (TouchKeyboard::IsPageKey(keyEvent.keyCode(), keyEvent.charCode())) {
+		if (client_ && showingCandidates()) {
+			try { client_->changePage(keyEvent.charCode() == TouchKeyboard::kPreviousPage, session); }
+			catch (...) { closeClient(); }
+		}
+		return true;
+	}
 	logDebug(L"[onKeyDown] " + keyEventSummary(keyEvent) +
 		L" client=" + boolText(client_ != nullptr));
 	//if (keyEvent.isKeyToggled(VK_CAPITAL))
@@ -753,6 +765,7 @@ bool TextService::onKeyDown(Ime::KeyEvent& keyEvent, Ime::EditSession* session) 
 
 // virtual
 bool TextService::filterKeyUp(Ime::KeyEvent& keyEvent) {
+	if (TouchKeyboard::IsPageKey(keyEvent.keyCode(), keyEvent.charCode())) return true;
 	logDebug(L"[filterKeyUp] " + keyEventSummary(keyEvent) +
 		L" client=" + boolText(client_ != nullptr));
 	if(!client_)
@@ -775,6 +788,7 @@ bool TextService::filterKeyUp(Ime::KeyEvent& keyEvent) {
 
 // virtual
 bool TextService::onKeyUp(Ime::KeyEvent& keyEvent, Ime::EditSession* session) {
+	if (TouchKeyboard::IsPageKey(keyEvent.keyCode(), keyEvent.charCode())) return true;
 	logDebug(L"[onKeyUp] " + keyEventSummary(keyEvent) +
 		L" client=" + boolText(client_ != nullptr));
 	if(!client_)
@@ -881,6 +895,10 @@ HMENU TextService::onMenu(LangBarButton* btn) {
 // virtual
 void TextService::onCompartmentChanged(const GUID& key) {
 	Ime::TextService::onCompartmentChanged(key);
+	if (key == GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION) {
+		const bool opened = (threadCompartmentValue(key) & TF_CONVERSIONMODE_NATIVE) != 0;
+		if (opened != isKeyboardOpened()) setKeyboardOpen(opened);
+	}
 	if(client_)
 		client_->onCompartmentChanged(key);
 }
@@ -889,6 +907,7 @@ void TextService::onCompartmentChanged(const GUID& key) {
 // virtual
 void TextService::onKeyboardStatusChanged(bool opened) {
 	Ime::TextService::onKeyboardStatusChanged(opened);
+	syncTouchKeyboardMode(opened);
 	if(client_)
 		client_->onKeyboardStatusChanged(opened);
 	if(opened) { // keyboard is opened

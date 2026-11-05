@@ -5,10 +5,12 @@ if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm
   throw 'This test requires Windows on ARM64'
 }
 New-Item arm-validation -ItemType Directory -Force | Out-Null
-function Invoke-SetupProcess([string]$FilePath, [string]$Log) {
+function Invoke-SetupProcess([string]$FilePath, [string]$Log, [string]$Locale = '') {
   Write-Host "Running setup: $FilePath; log: $Log"
   # Start-Process -Wait waits for descendants, including the persistent launcher.
-  $process = Start-Process -FilePath $FilePath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=`"$Log`"") -PassThru -WindowStyle Hidden
+  $setupArguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=`"$Log`"")
+  if ($Locale) { $setupArguments += "/IMELOCALE=$Locale" }
+  $process = Start-Process -FilePath $FilePath -ArgumentList $setupArguments -PassThru -WindowStyle Hidden
   if (-not $process.WaitForExit(180000)) {
     if (Test-Path -LiteralPath $Log) { Get-Content -LiteralPath $Log -Tail 100 | Write-Host }
     throw "Setup process $($process.Id) exceeded three minutes"
@@ -27,24 +29,45 @@ try {
   $installer = Join-Path $Artifacts 'TypeDuck-Windows-ARM64-installer/typeduck-windows-arm64-setup.exe'
   $installDir = Join-Path ${env:ProgramFiles(x86)} 'TypeDuckIME'
   $probeFailures = [System.Collections.Generic.List[string]]::new()
-  foreach ($pass in 'install','upgrade') {
+  $invalidExit = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/invalid-locale.log" -Locale 'zh-CN'
+  if ($invalidExit -eq 0) { throw 'Unsupported locale was accepted' }
+  if (Test-Path "$installDir/TypeDuckSetupHelper.exe") { throw 'Invalid locale modified the installation' }
+  $passes = @(
+    @{ Name = 'install'; Choice = ''; Expected = 'zh-HK' },
+    @{ Name = 'upgrade-hk'; Choice = ''; Expected = 'zh-HK' },
+    @{ Name = 'migrate-tw'; Choice = 'zh-TW'; Expected = 'zh-TW' },
+    @{ Name = 'upgrade-tw'; Choice = ''; Expected = 'zh-TW' },
+    @{ Name = 'migrate-hk'; Choice = 'zh-HK'; Expected = 'zh-HK' }
+  )
+  foreach ($case in $passes) {
+    $pass = $case.Name
     $log = Join-Path $PWD "arm-validation/$pass.log"
-    $setupExitCode = Invoke-SetupProcess -FilePath $installer -Log $log
+    $setupExitCode = Invoke-SetupProcess -FilePath $installer -Log $log -Locale $case.Choice
     if ($setupExitCode -ne 0) { throw "$pass returned $setupExitCode; reboot path needs separate validation" }
+    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry32, [Microsoft.Win32.RegistryView]::Registry64)) {
+      $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+      try {
+        $key = $hive.OpenSubKey('Software\TypeDuckIME')
+        try {
+          if ($key.GetValue('RegistrationLocale') -ne $case.Expected) { throw "Wrong persisted locale in $view" }
+          if ($key.GetValue('PendingRegistrationLocale')) { throw "Unexpected pending locale in $view" }
+        } finally { if ($key) { $key.Dispose() } }
+      } finally { $hive.Dispose() }
+    }
     $expectedHash = (Get-FileHash -LiteralPath "$Artifacts/frontend-ARM64X/MoqiTextService/Release/TypeDuckTextService.dll" -Algorithm SHA256).Hash
     $installedHash = (Get-FileHash -LiteralPath "$env:WINDIR/System32/TypeDuckTextService.dll" -Algorithm SHA256).Hash
     if ($installedHash -ne $expectedHash) { throw 'Setup did not install the ARM64X system DLL' }
     foreach ($probe in @('frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe','frontend-x64/TypeDuckLoadProbe.exe','frontend-Win32/TypeDuckLoadProbe.exe')) {
       Write-Host "Testing COM activation: $probe"
       try {
-        & (Join-Path $Artifacts $probe)
+        & (Join-Path $Artifacts $probe) $case.Expected
         if ($LASTEXITCODE) { throw "COM activation failed: $probe" }
       } catch {
         $probeFailures.Add("${pass}: ${probe}: $_")
         Write-Warning $probeFailures[$probeFailures.Count - 1]
       }
     }
-    if ($pass -eq 'install') {
+    if ($pass -eq 'install' -or $pass -eq 'migrate-tw') {
       $runtime = Join-Path $installDir 'TypeDuckRuntime'
       $server = Join-Path $runtime 'server.exe'
       $manifest = Join-Path $PWD 'arm-validation/runtime-manifest.json'
@@ -57,7 +80,7 @@ try {
       } | ConvertTo-Json | Set-Content -LiteralPath $manifest
       $manifestHash = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash
       try {
-        & "$Artifacts/frontend-Win32/TypeduckBackendProbe.exe" --server-exe $server --working-dir $runtime --runtime-manifest $manifest --runtime-manifest-sha256 $manifestHash --adapter-root $runtime --adapter-commit 9c7283b35cfe93e962b808df3a24e894f5be94e4 --adapter-server-sha256 $serverHash --output "$PWD/arm-validation/typing-proof.json" --frames "$PWD/arm-validation/synthetic-typing-frames.ndjson" --timeout-ms 60000
+        & "$Artifacts/frontend-Win32/TypeduckBackendProbe.exe" --server-exe $server --working-dir $runtime --runtime-manifest $manifest --runtime-manifest-sha256 $manifestHash --adapter-root $runtime --adapter-commit 9c7283b35cfe93e962b808df3a24e894f5be94e4 --adapter-server-sha256 $serverHash --output "$PWD/arm-validation/typing-proof-$($case.Expected).json" --frames "$PWD/arm-validation/synthetic-typing-frames-$($case.Expected).ndjson" --timeout-ms 60000
         if ($LASTEXITCODE) { throw 'Packaged engine composition/candidate/commit probe failed on ARM64' }
       } catch {
         $probeFailures.Add("Installed engine: $_")

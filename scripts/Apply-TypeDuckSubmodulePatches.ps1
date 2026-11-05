@@ -99,6 +99,11 @@ $patches = @(
     Name = "libIME2 TypeDuck diagnostics path patch"
     SubmodulePath = "libIME2"
     PatchPath = "patches\libIME2\0001-use-typeduck-diagnostics-paths.patch"
+  },
+  @{
+    Name = "libIME2 touch keyboard Unicode packet patch"
+    SubmodulePath = "libIME2"
+    PatchPath = "patches\libIME2\0002-decode-touch-keyboard-unicode-packets.patch"
   }
 )
 

@@ -19,7 +19,8 @@ project(MoqiIMWindows LANGUAGES C CXX)
 
 enable_testing()
 add_executable(TypeDuckLoadProbe Tests/TypeDuckLoadProbe.cpp)
-target_link_libraries(TypeDuckLoadProbe PRIVATE ole32 uuid)
+target_link_libraries(TypeDuckLoadProbe PRIVATE ole32 oleaut32 uuid advapi32)
+set_target_properties(TypeDuckLoadProbe PROPERTIES CXX_STANDARD 20)
 
 include(FetchContent)
 set(MOQI_PROTOBUF_ROOT "" CACHE PATH "Optional local protobuf install root (contains bin/include)")

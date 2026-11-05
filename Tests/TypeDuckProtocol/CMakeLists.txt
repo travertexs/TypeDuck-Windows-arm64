@@ -35,3 +35,8 @@ add_dependencies(ProtocolRecovery_test moqi_proto_cpp_gen)
 target_sources(ProtocolRecovery_test PRIVATE "${MOQI_PROTO_CPP}")
 
 add_test(NAME ProtocolRecovery_test COMMAND ProtocolRecovery_test)
+
+add_executable(TouchKeyboard_test TouchKeyboard_test.cpp)
+target_include_directories(TouchKeyboard_test PRIVATE "${PROJECT_SOURCE_DIR}")
+target_link_libraries(TouchKeyboard_test gtest_main)
+add_test(NAME TouchKeyboard_test COMMAND TouchKeyboard_test)

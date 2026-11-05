@@ -263,5 +263,6 @@ STDAPI DllRegisterServer(void) {
 			::FindClose(hFind);
 		}
 	}
-	return imeModule->registerServer(Moqi::TypeDuck::serviceName(), langProfiles.data(), langProfiles.size());
+	const HRESULT result = imeModule->registerServer(Moqi::TypeDuck::serviceName(), langProfiles.data(), langProfiles.size());
+	return SUCCEEDED(result) ? Moqi::TypeDuck::removeOtherLanguageProfile() : result;
 }
