@@ -103,22 +103,9 @@ try {
   $_ | Format-List * -Force | Out-File "$Output-error.txt"
   throw
 } finally {
-  if ($window) {
-    Click-Control (Find-Control $window '取消 Cancel')
-    $yes = $null
-    $deadline = [DateTime]::UtcNow.AddSeconds(5)
-    while (-not $yes -and -not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
-      Start-Sleep -Milliseconds 200
-      $yes = Find-Control $root '是 Yes'
-    }
-    if ($yes) { Click-Control $yes }
-    else {
-      $root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
-        ForEach-Object { "$($_.Current.Name); class=$($_.Current.ClassName); hwnd=$($_.Current.NativeWindowHandle)" } | Set-Content "$Output-cancel-controls.txt"
-    }
-  }
-  if (-not $process.WaitForExit(10000)) {
-    $process.Kill($true)
-    throw 'Cancelled installer did not exit; stopped only this test process tree'
-  }
+  # This fixture never advances beyond the language page and never installs.
+  # Tear down only its own process tree; cancellation-dialog automation is not
+  # part of the language-page assertion and needs an interactive desktop.
+  if (-not $process.HasExited) { $process.Kill($true) }
+  if (-not $process.WaitForExit(10000)) { throw 'Installer preview fixture did not exit' }
 }
