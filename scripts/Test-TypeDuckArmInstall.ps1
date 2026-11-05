@@ -18,6 +18,22 @@ function Invoke-SetupProcess([string]$FilePath, [string]$Log, [string]$Locale = 
   Write-Host "Setup exited: $($process.ExitCode)"
   return $process.ExitCode
 }
+function Invoke-LoadProbe([string]$Probe, [string]$Locale, [switch]$TouchPackets) {
+  $PSNativeCommandUseErrorActionPreference = $false
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    $arguments = @($Locale)
+    if ($TouchPackets) { $arguments += '--touch-packets' }
+    & $Probe @arguments
+    if ($LASTEXITCODE -eq 0) { return }
+    if ($LASTEXITCODE -ne 75) { throw "Runtime probe failed with exit ${LASTEXITCODE}: $Probe" }
+    # TSF can snapshot the old profile in the first process after migration,
+    # even after its registry registration is removed. Require a fresh process
+    # to pass every API assertion; a registry-only result is never a pass.
+    Write-Host "Retrying TSF cache snapshot in a fresh process ($attempt/3)"
+    Start-Sleep -Milliseconds 250
+  }
+  throw "TSF profile cache did not settle in three processes: $Probe"
+}
 Start-Transcript arm-validation/results.txt
 try {
   Write-Host "OS architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
@@ -75,8 +91,7 @@ try {
     foreach ($probe in @('frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe','frontend-x64/TypeDuckLoadProbe.exe','frontend-Win32/TypeDuckLoadProbe.exe')) {
       Write-Host "Testing COM activation: $probe"
       try {
-        & (Join-Path $Artifacts $probe) $case.Expected --touch-packets
-        if ($LASTEXITCODE) { throw "COM activation failed: $probe" }
+        Invoke-LoadProbe (Join-Path $Artifacts $probe) $case.Expected -TouchPackets
       } catch {
         $probeFailures.Add("${pass}: ${probe}: $_")
         Write-Warning $probeFailures[$probeFailures.Count - 1]
@@ -137,8 +152,7 @@ try {
   if (-not $reregister.WaitForExit(60000) -or $reregister.ExitCode -ne 0) { throw 'Deferred registration callback failed' }
   & reg.exe query 'HKLM\SOFTWARE\Microsoft\CTF\TIP\{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}\LanguageProfile' /s /reg:64 | Out-File "$PWD/arm-validation/deferred-final-profiles.txt"
   Get-ItemProperty 'HKLM:\Software\TypeDuckIME' | Format-List | Out-File "$PWD/arm-validation/deferred-final-locale.txt"
-  & "$Artifacts/frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe" 'zh-TW'
-  if ($LASTEXITCODE) { throw 'Deferred callback did not migrate to Taiwan' }
+  Invoke-LoadProbe "$Artifacts/frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe" 'zh-TW'
   $saved = Get-ItemProperty 'HKLM:\Software\TypeDuckIME'
   if ($saved.RegistrationLocale -ne 'zh-TW' -or $saved.PendingRegistrationLocale) { throw 'Deferred registration state was not finalized' }
   if (Get-ScheduledTask -TaskName 'TypeDuckIME-ReRegisterTSF' -ErrorAction SilentlyContinue) { throw 'Completed restart task remained' }
@@ -153,8 +167,7 @@ try {
   $freshTw = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/fresh-tw.log" -Locale 'zh-TW'
   if ($freshTw -ne 0) { throw "Fresh Taiwan installation returned $freshTw" }
   foreach ($probe in @('frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe','frontend-x64/TypeDuckLoadProbe.exe','frontend-Win32/TypeDuckLoadProbe.exe')) {
-    & (Join-Path $Artifacts $probe) 'zh-TW'
-    if ($LASTEXITCODE) { throw "Fresh Taiwan profile probe failed: $probe" }
+    Invoke-LoadProbe (Join-Path $Artifacts $probe) 'zh-TW'
   }
   $invalid = Start-Process "$installDir/TypeDuckSetupHelper.exe" -ArgumentList @('/r','--locale','zh-CN','/s') -PassThru -WindowStyle Hidden
   if (-not $invalid.WaitForExit(10000) -or $invalid.ExitCode -ne 3) { throw 'Helper did not reject invalid locale silently' }

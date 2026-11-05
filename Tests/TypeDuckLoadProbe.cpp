@@ -12,6 +12,27 @@ int ProbeTouchPackets(ITfKeyEventSink* sink);
 #define CHECK(condition) do { if (!(condition)) { \
   std::printf("FAIL %s (line %d)\n", #condition, __LINE__); return 3; } } while (0)
 
+bool RegistryMatchesLocale(const wchar_t* locale) {
+  if (TypeDuckRegistration::ReadLocale() != locale) return false;
+  const std::wstring root = L"SOFTWARE\\Microsoft\\CTF\\TIP\\" +
+      std::wstring(TypeDuckRegistration::kClsid) + L"\\LanguageProfile\\";
+  const bool taiwan = _wcsicmp(locale, L"zh-TW") == 0;
+  const auto selected = root + (taiwan ? L"0x00000404\\" : L"0x00000c04\\") + TypeDuckRegistration::kProfile;
+  const auto old = root + (taiwan ? L"0x00000c04\\" : L"0x00000404\\") + TypeDuckRegistration::kProfile;
+#ifdef _WIN64
+  const REGSAM view = KEY_WOW64_64KEY;
+#else
+  const REGSAM view = KEY_WOW64_32KEY;
+#endif
+  HKEY key = nullptr;
+  const auto selectedStatus = RegOpenKeyExW(HKEY_LOCAL_MACHINE, selected.c_str(), 0, KEY_READ | view, &key);
+  if (key) RegCloseKey(key);
+  key = nullptr;
+  const auto oldStatus = RegOpenKeyExW(HKEY_LOCAL_MACHINE, old.c_str(), 0, KEY_READ | view, &key);
+  if (key) RegCloseKey(key);
+  return selectedStatus == ERROR_SUCCESS && oldStatus == ERROR_FILE_NOT_FOUND;
+}
+
 int Probe(const wchar_t* locale, bool testPackets) {
   CLSID clsid = {}, profileId = {};
   CHECK_HR(CLSIDFromString(TypeDuckRegistration::kClsid, &clsid));
@@ -74,6 +95,10 @@ int Probe(const wchar_t* locale, bool testPackets) {
     Sleep(50);
     ++refreshAttempts;
   } while (languageResult == E_FAIL && GetTickCount64() < languageDeadline);
+  if (FAILED(languageResult) && RegistryMatchesLocale(locale)) {
+    std::puts("RETRY fresh process: TSF language cache has not incorporated the verified registration");
+    return 75;
+  }
   CHECK_HR(languageResult);
   if (refreshAttempts) std::printf("TSF migration notification settled after %d refresh attempts\n", refreshAttempts);
   TF_INPUTPROCESSORPROFILE profile = {}, oldProfile = {};
@@ -89,6 +114,10 @@ int Probe(const wchar_t* locale, bool testPackets) {
   } while (GetTickCount64() < profileDeadline);
   std::printf("TSF profile results: selected=0x%08lx (language 0x%04x), old=0x%08lx (language 0x%04x)\n",
               selectedResult, profile.langid, oldResult, oldProfile.langid);
+  if ((FAILED(selectedResult) || SUCCEEDED(oldResult)) && RegistryMatchesLocale(locale)) {
+    std::puts("RETRY fresh process: TSF profile snapshot is stale; exact selected registry profile verified");
+    return 75;
+  }
   CHECK_HR(selectedResult);
   CHECK(FAILED(oldResult));
   BOOL enabled = FALSE;

@@ -55,11 +55,21 @@ x86 processes. Installer checks cover locale defaults, same-locale updates and
 HK to TW to HK migration. Engine checks use the packaged runtime in both locales.
 `Windows-ARM64-validation` contains the resulting logs.
 
+The installer page is rendered on the runner, including fresh-install Hong Kong
+and saved Taiwan selections. Its owner-drawn radio items may not expose UI
+Automation selection patterns, so the saved screenshots must also be inspected.
+The opt-in `TypeDuckLoadProbe.exe zh-TW --touch-packets` test sends synthetic
+Unicode input only to its own foreground window. If the runner cannot activate
+that window, it records `SKIP SendInput` and continues the non-interactive TSF
+checks. A skipped input test is not evidence that touch typing or Small works.
+
 Interactive acceptance still requires opening a text field, selecting TypeDuck,
 opening the Windows touch keyboard and inspecting its layout menu separately
 under zh-HK and zh-TW. Verify Latin keys, tone digits, candidate selection and
-paging, and the Chinese/English toggle. Reboot replacement is a separate test
-from a same-version update without locked DLLs.
+paging, and the Chinese/English toggle. The locked-DLL test checks staging,
+restart status, the saved pending locale and the re-registration callback. It
+uses the same DLL build on each side and invokes the callback after releasing
+the lock; it does not reboot the hosted runner or prove boot-time file replacement.
 
 References:
 
