@@ -8,7 +8,7 @@ New-Item arm-validation -ItemType Directory -Force | Out-Null
 function Invoke-SetupProcess([string]$FilePath, [string]$Log, [string]$Locale = '') {
   Write-Host "Running setup: $FilePath; log: $Log"
   # Start-Process -Wait waits for descendants, including the persistent launcher.
-  $setupArguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=`"$Log`"")
+  $setupArguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/RESTARTEXITCODE=3010',"/LOG=`"$Log`"")
   if ($Locale) { $setupArguments += "/IMELOCALE=$Locale" }
   $process = Start-Process -FilePath $FilePath -ArgumentList $setupArguments -PassThru -WindowStyle Hidden
   if (-not $process.WaitForExit(180000)) {
@@ -29,6 +29,7 @@ try {
   $installer = Join-Path $Artifacts 'TypeDuck-Windows-ARM64-installer/typeduck-windows-arm64-setup.exe'
   $installDir = Join-Path ${env:ProgramFiles(x86)} 'TypeDuckIME'
   $probeFailures = [System.Collections.Generic.List[string]]::new()
+  & "$PSScriptRoot/Test-TypeDuckInstallerUi.ps1" -Installer $installer -Output "$PWD/arm-validation/installer-language-hk"
   $invalidExit = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/invalid-locale.log" -Locale 'zh-CN'
   if ($invalidExit -eq 0) { throw 'Unsupported locale was accepted' }
   if (Test-Path "$installDir/TypeDuckSetupHelper.exe") { throw 'Invalid locale modified the installation' }
@@ -60,7 +61,7 @@ try {
     foreach ($probe in @('frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe','frontend-x64/TypeDuckLoadProbe.exe','frontend-Win32/TypeDuckLoadProbe.exe')) {
       Write-Host "Testing COM activation: $probe"
       try {
-        & (Join-Path $Artifacts $probe) $case.Expected
+        & (Join-Path $Artifacts $probe) $case.Expected --touch-packets
         if ($LASTEXITCODE) { throw "COM activation failed: $probe" }
       } catch {
         $probeFailures.Add("${pass}: ${probe}: $_")
@@ -68,6 +69,11 @@ try {
       }
     }
     if ($pass -eq 'install' -or $pass -eq 'migrate-tw') {
+      if ($pass -eq 'install') {
+        $sentinel = Join-Path $env:LOCALAPPDATA 'TypeDuckIME/locale-upgrade-preservation.txt'
+        'Preserve existing user files through locale migration.' | Set-Content -LiteralPath $sentinel
+        $sentinelHash = (Get-FileHash -LiteralPath $sentinel).Hash
+      }
       $runtime = Join-Path $installDir 'TypeDuckRuntime'
       $server = Join-Path $runtime 'server.exe'
       $manifest = Join-Path $PWD 'arm-validation/runtime-manifest.json'
@@ -87,7 +93,32 @@ try {
         Write-Warning $probeFailures[$probeFailures.Count - 1]
       }
     }
+    if ($pass -eq 'upgrade-tw') {
+      & "$PSScriptRoot/Test-TypeDuckInstallerUi.ps1" -Installer $installer -ExpectedLocale 'zh-TW' -Output "$PWD/arm-validation/installer-language-tw"
+    }
+    if ((Get-FileHash -LiteralPath $sentinel).Hash -ne $sentinelHash) { throw 'An update changed the existing user data sentinel' }
   }
+
+  # Exercise the actual sharing-violation/deferred-registration path. This
+  # validates staging, task arguments and the post-restart callback, without
+  # claiming that a hosted runner was rebooted. Both DLL copies are this build.
+  $lockedDll = [IO.File]::Open("$env:WINDIR/System32/TypeDuckTextService.dll", [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try {
+    $deferredExit = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/deferred-tw.log" -Locale 'zh-TW'
+    if ($deferredExit -ne 3010) { throw "Locked DLL update should request restart, returned $deferredExit" }
+    $saved = Get-ItemProperty 'HKLM:\Software\TypeDuckIME'
+    if ($saved.RegistrationLocale -ne 'zh-HK' -or $saved.PendingRegistrationLocale -ne 'zh-TW') { throw 'Pending locale changed the active locale prematurely' }
+    $task = Get-ScheduledTask -TaskName 'TypeDuckIME-ReRegisterTSF'
+    if ($task.Actions.Arguments -notmatch '--locale zh-TW') { throw 'Restart task lost the selected language' }
+    $task | Export-Clixml "$PWD/arm-validation/deferred-task.xml"
+  } finally { $lockedDll.Dispose() }
+  $reregister = Start-Process "$installDir/TypeDuckSetupHelper.exe" -ArgumentList @('/r','/s','--appdir',"`"$installDir`"") -PassThru -WindowStyle Hidden
+  if (-not $reregister.WaitForExit(60000) -or $reregister.ExitCode -ne 0) { throw 'Deferred registration callback failed' }
+  & "$Artifacts/frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe" 'zh-TW'
+  if ($LASTEXITCODE) { throw 'Deferred callback did not migrate to Taiwan' }
+  $saved = Get-ItemProperty 'HKLM:\Software\TypeDuckIME'
+  if ($saved.RegistrationLocale -ne 'zh-TW' -or $saved.PendingRegistrationLocale) { throw 'Deferred registration state was not finalized' }
+  if (Get-ScheduledTask -TaskName 'TypeDuckIME-ReRegisterTSF' -ErrorAction SilentlyContinue) { throw 'Completed restart task remained' }
   $uninstallLog = Join-Path $PWD 'arm-validation/uninstall.log'
   $setupExitCode = Invoke-SetupProcess -FilePath "$installDir/unins000.exe" -Log $uninstallLog
   if ($setupExitCode -ne 0) { throw "Uninstall returned $setupExitCode" }
@@ -95,6 +126,18 @@ try {
   if (Test-Path -LiteralPath $key) { throw '64-bit COM registration remained after uninstall' }
   $key32 = 'Registry::HKEY_LOCAL_MACHINE/SOFTWARE/Classes/WOW6432Node/CLSID/{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}/InprocServer32'
   if (Test-Path -LiteralPath $key32) { throw '32-bit COM registration remained after uninstall' }
+
+  $freshTw = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/fresh-tw.log" -Locale 'zh-TW'
+  if ($freshTw -ne 0) { throw "Fresh Taiwan installation returned $freshTw" }
+  foreach ($probe in @('frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe','frontend-x64/TypeDuckLoadProbe.exe','frontend-Win32/TypeDuckLoadProbe.exe')) {
+    & (Join-Path $Artifacts $probe) 'zh-TW'
+    if ($LASTEXITCODE) { throw "Fresh Taiwan profile probe failed: $probe" }
+  }
+  $invalid = Start-Process "$installDir/TypeDuckSetupHelper.exe" -ArgumentList @('/r','--locale','zh-CN','/s') -PassThru -WindowStyle Hidden
+  if (-not $invalid.WaitForExit(10000) -or $invalid.ExitCode -ne 3) { throw 'Helper did not reject invalid locale silently' }
+  $setupExitCode = Invoke-SetupProcess -FilePath "$installDir/unins000.exe" -Log "$PWD/arm-validation/uninstall-tw.log"
+  if ($setupExitCode -ne 0) { throw "Taiwan uninstall returned $setupExitCode" }
+  if ((Test-Path -LiteralPath $key) -or (Test-Path -LiteralPath $key32)) { throw 'COM registration remained after Taiwan uninstall' }
   if ($probeFailures.Count) { throw ($probeFailures -join "`n") }
 } finally {
   Stop-Transcript

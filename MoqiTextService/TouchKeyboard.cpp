@@ -1,7 +1,41 @@
 #include "MoqiTextService.h"
 #include "TypeDuckProfile.h"
+#include "TouchKeyboard.h"
 
 namespace Moqi {
+namespace {
+bool IsInactivePagePacket(TextService* service, ITfContext* context,
+                          UINT message, WPARAM key, LPARAM flags) {
+  if (key != VK_PACKET) return false;
+  Ime::KeyEvent event(message, key, flags);
+  return TouchKeyboard::IsPageKey(event.keyCode(), event.charCode()) &&
+         (!service->isKeyboardOpened() || service->isKeyboardDisabled(context));
+}
+}
+
+// libIME2 bypasses its virtual key handlers when the IME is closed/disabled.
+// Still swallow the touch keyboard's private commands in that state.
+STDMETHODIMP TextService::OnTestKeyDown(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) {
+  if (!eaten) return E_POINTER;
+  if (IsInactivePagePacket(this, context, WM_KEYDOWN, key, flags)) { *eaten = TRUE; return S_OK; }
+  return Ime::TextService::OnTestKeyDown(context, key, flags, eaten);
+}
+STDMETHODIMP TextService::OnKeyDown(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) {
+  if (!eaten) return E_POINTER;
+  if (IsInactivePagePacket(this, context, WM_KEYDOWN, key, flags)) { *eaten = TRUE; return S_OK; }
+  return Ime::TextService::OnKeyDown(context, key, flags, eaten);
+}
+STDMETHODIMP TextService::OnTestKeyUp(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) {
+  if (!eaten) return E_POINTER;
+  if (IsInactivePagePacket(this, context, WM_KEYUP, key, flags)) { *eaten = TRUE; return S_OK; }
+  return Ime::TextService::OnTestKeyUp(context, key, flags, eaten);
+}
+STDMETHODIMP TextService::OnKeyUp(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) {
+  if (!eaten) return E_POINTER;
+  if (IsInactivePagePacket(this, context, WM_KEYUP, key, flags)) { *eaten = TRUE; return S_OK; }
+  return Ime::TextService::OnKeyUp(context, key, flags, eaten);
+}
+
 STDMETHODIMP TextService::QueryInterface(REFIID iid, void** result) {
   if (!result) return E_POINTER;
   *result = nullptr;

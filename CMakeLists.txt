@@ -18,7 +18,7 @@ set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cxx_fl
 project(MoqiIMWindows LANGUAGES C CXX)
 
 enable_testing()
-add_executable(TypeDuckLoadProbe Tests/TypeDuckLoadProbe.cpp)
+add_executable(TypeDuckLoadProbe Tests/TypeDuckLoadProbe.cpp Tests/TouchPacketProbe.cpp libIME2/src/KeyEvent.cpp)
 target_link_libraries(TypeDuckLoadProbe PRIVATE ole32 oleaut32 uuid advapi32)
 set_target_properties(TypeDuckLoadProbe PROPERTIES CXX_STANDARD 20)
 

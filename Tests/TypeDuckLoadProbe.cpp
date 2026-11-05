@@ -6,12 +6,13 @@
 #include "../TypeDuckRegistration.h"
 
 using Microsoft::WRL::ComPtr;
+int ProbeTouchPackets(ITfKeyEventSink* sink);
 #define CHECK_HR(call) do { HRESULT result = (call); if (FAILED(result)) { \
   std::printf("FAIL %s: 0x%08lx (line %d)\n", #call, result, __LINE__); return 2; } } while (0)
 #define CHECK(condition) do { if (!(condition)) { \
   std::printf("FAIL %s (line %d)\n", #condition, __LINE__); return 3; } } while (0)
 
-int Probe(const wchar_t* locale) {
+int Probe(const wchar_t* locale, bool testPackets) {
   CLSID clsid = {}, profileId = {};
   CHECK_HR(CLSIDFromString(TypeDuckRegistration::kClsid, &clsid));
   CHECK_HR(CLSIDFromString(TypeDuckRegistration::kProfile, &profileId));
@@ -52,11 +53,42 @@ int Probe(const wchar_t* locale) {
   CHECK_HR(CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&thread)));
   TfClientId client = TF_CLIENTID_NULL;
   CHECK_HR(thread->Activate(&client));
+  // Activate() on the thread manager returns the APPLICATION's client ID.
+  // Bind this manually created TIP to its own CLSID, as TSF does when loading
+  // it, so GetFunctionProvider(CLSID) can find the single-sink registration.
+  ComPtr<ITfClientId> clientIds;
+  CHECK_HR(thread.As(&clientIds));
+  CHECK_HR(clientIds->GetClientId(clsid, &client));
   CHECK_HR(service->Activate(thread.Get(), client));
   ComPtr<ITfFunctionProvider> discovered;
   CHECK_HR(thread->GetFunctionProvider(clsid, &discovered));
   CHECK_HR(discovered->GetFunction(GUID_NULL, __uuidof(ITfFnGetPreferredTouchKeyboardLayout), &unknown));
   unknown->Release();
+  ComPtr<ITfCompartmentMgr> compartments;
+  CHECK_HR(thread.As(&compartments));
+  ComPtr<ITfCompartment> openClose, conversion;
+  CHECK_HR(compartments->GetCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, &openClose));
+  CHECK_HR(compartments->GetCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, &conversion));
+  VARIANT value = {}, actual = {};
+  value.vt = VT_I4;
+  value.lVal = 0;
+  CHECK_HR(openClose->SetValue(client, &value));
+  CHECK_HR(conversion->GetValue(&actual));
+  CHECK(actual.vt == VT_I4 && (actual.lVal & TF_CONVERSIONMODE_NATIVE) == 0);
+  VariantClear(&actual);
+  value.lVal = TF_CONVERSIONMODE_NATIVE;
+  CHECK_HR(conversion->SetValue(client, &value));
+  CHECK_HR(openClose->GetValue(&actual));
+  CHECK(actual.vt == VT_I4 && actual.lVal != 0);
+  VariantClear(&actual);
+  std::puts("PASS bidirectional touch keyboard conversion-mode synchronization");
+  if (testPackets) {
+    value.lVal = 0;
+    CHECK_HR(openClose->SetValue(client, &value));
+    ComPtr<ITfKeyEventSink> sink;
+    CHECK_HR(service.As(&sink));
+    CHECK(ProbeTouchPackets(sink.Get()) == 0);
+  }
   discovered.Reset();
   CHECK_HR(service->Deactivate());
   CHECK(FAILED(thread->GetFunctionProvider(clsid, &discovered)));
@@ -90,7 +122,8 @@ int Probe(const wchar_t* locale) {
 int wmain(int argc, wchar_t** argv) {
   const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   if (FAILED(hr)) return 1;
-  const int result = Probe(argc > 1 ? argv[1] : nullptr);
+  const int result = Probe(argc > 1 ? argv[1] : nullptr,
+                           argc > 2 && wcscmp(argv[2], L"--touch-packets") == 0);
   CoUninitialize();
   return result;
 }

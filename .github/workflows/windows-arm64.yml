@@ -5,6 +5,7 @@ on:
     branches: [windows-arm64]
     paths-ignore:
       - scripts/Test-TypeDuckArmInstall.ps1
+      - scripts/Test-TypeDuckInstallerUi.ps1
       - .github/workflows/validate-arm64.yml
       - docs/**
       - README.md

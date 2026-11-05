@@ -10,8 +10,8 @@ TypeDuck Windows 係為香港 Windows 用戶而設嘅粵語輸入法，使用 Mi
 
 ## Features / 功能
 
-- TypeDuck Cantonese IME registered under Chinese (Traditional, Hong Kong) / `zh-HK`.<br>
-  TypeDuck 粵語輸入法會註冊喺「中文（繁體，香港）」/ `zh-HK`。
+- Choose Chinese (Hong Kong) / `zh-HK` or Chinese (Taiwan) / `zh-TW` when installing or updating TypeDuck.<br>
+  安裝或更新時可選擇將 TypeDuck 註冊喺「中文（香港）」/ `zh-HK` 或「中文（台灣）」/ `zh-TW`。
 - Candidate, Jyutping, and dictionary-style details in a Windows candidate window.<br>
   候選窗會顯示候選字、粵拼同字典式資料。
 - A bilingual installer, settings window, about dialog, and Start Menu shortcuts.<br>
@@ -198,7 +198,7 @@ The release workflows build on `windows-2022`, checkout both TypeDuck Windows re
 - Installer file name and signature/hash evidence.
 - Clean install, upgrade, uninstall, and reboot-required registration paths.
 - Win32 and x64 TSF DLL registration.
-- `zh-HK` language profile registration.
+- Selectable `zh-HK` / `zh-TW` language profile registration. See [touch keyboard and registration](docs/touch-keyboard-and-registration.md) for update behavior and touch keyboard compatibility limits.
 - Candidate window and dictionary lookup behavior.
 - Settings persistence and Rime side effects.
 

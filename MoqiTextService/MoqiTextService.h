@@ -96,6 +96,10 @@ public:
 	STDMETHODIMP GetFunction(REFGUID guid, REFIID iid, IUnknown** result) override;
 	STDMETHODIMP GetDisplayName(BSTR* name) override;
 	STDMETHODIMP GetLayout(TKBLayoutType* type, WORD* id) override;
+	STDMETHODIMP OnTestKeyDown(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) override;
+	STDMETHODIMP OnKeyDown(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) override;
+	STDMETHODIMP OnTestKeyUp(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) override;
+	STDMETHODIMP OnKeyUp(ITfContext* context, WPARAM key, LPARAM flags, BOOL* eaten) override;
 
 	virtual void onActivate();
 	virtual void onDeactivate();
