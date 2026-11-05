@@ -135,6 +135,8 @@ try {
   } finally { $lockedDll.Dispose(); $lockedDll32.Dispose() }
   $reregister = Start-Process "$installDir/TypeDuckSetupHelper.exe" -ArgumentList @('/r','/s','--appdir',"`"$installDir`"") -PassThru -WindowStyle Hidden
   if (-not $reregister.WaitForExit(60000) -or $reregister.ExitCode -ne 0) { throw 'Deferred registration callback failed' }
+  & reg.exe query 'HKLM\SOFTWARE\Microsoft\CTF\TIP\{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}\LanguageProfile' /s /reg:64 | Out-File "$PWD/arm-validation/deferred-final-profiles.txt"
+  Get-ItemProperty 'HKLM:\Software\TypeDuckIME' | Format-List | Out-File "$PWD/arm-validation/deferred-final-locale.txt"
   & "$Artifacts/frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe" 'zh-TW'
   if ($LASTEXITCODE) { throw 'Deferred callback did not migrate to Taiwan' }
   $saved = Get-ItemProperty 'HKLM:\Software\TypeDuckIME'

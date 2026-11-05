@@ -76,9 +76,21 @@ int Probe(const wchar_t* locale, bool testPackets) {
   } while (languageResult == E_FAIL && GetTickCount64() < languageDeadline);
   CHECK_HR(languageResult);
   if (refreshAttempts) std::printf("TSF migration notification settled after %d refresh attempts\n", refreshAttempts);
-  TF_INPUTPROCESSORPROFILE profile = {};
-  CHECK_HR(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected, clsid, profileId, nullptr, &profile));
-  CHECK(FAILED(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, old, clsid, profileId, nullptr, &profile)));
+  TF_INPUTPROCESSORPROFILE profile = {}, oldProfile = {};
+  HRESULT selectedResult = E_FAIL, oldResult = S_OK;
+  const auto profileDeadline = GetTickCount64() + 5000;
+  do {
+    selectedResult = profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected, clsid, profileId, nullptr, &profile);
+    oldResult = profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, old, clsid, profileId, nullptr, &oldProfile);
+    if (SUCCEEDED(selectedResult) && FAILED(oldResult)) break;
+    MSG message;
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+    Sleep(50);
+  } while (GetTickCount64() < profileDeadline);
+  std::printf("TSF profile results: selected=0x%08lx (language 0x%04x), old=0x%08lx (language 0x%04x)\n",
+              selectedResult, profile.langid, oldResult, oldProfile.langid);
+  CHECK_HR(selectedResult);
+  CHECK(FAILED(oldResult));
   BOOL enabled = FALSE;
   CHECK_HR(languages->IsEnabledLanguageProfile(clsid, selected, profileId, &enabled));
   CHECK(enabled);
