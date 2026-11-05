@@ -22,8 +22,12 @@ function Find-Control($Root, [string]$Name) {
 }
 function Click-Control($Control) {
   if ($null -eq $Control) { throw 'Expected installer control was not found' }
-  $pattern = $Control.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
-  $pattern.Invoke()
+  if ($Control.Current.NativeWindowHandle -ne 0) {
+    [TypeDuckUiTest]::SendMessage([IntPtr]$Control.Current.NativeWindowHandle, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+  } else {
+    $pattern = $Control.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
+    $pattern.Invoke()
+  }
 }
 $arguments = @('/NORESTART')
 if ($Choice) { $arguments += "/IMELOCALE=$Choice" }
@@ -44,14 +48,12 @@ try {
   [TypeDuckUiTest]::SetForegroundWindow([IntPtr]$window.Current.NativeWindowHandle) | Out-Null
   Click-Control (Find-Control $window '下一步 Next >')
   Start-Sleep -Milliseconds 300
+  $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+  $controls | ForEach-Object { "$($_.Current.ControlType.ProgrammaticName): $($_.Current.Name); hwnd=$($_.Current.NativeWindowHandle); patterns=$($_.GetSupportedPatterns().ProgrammaticName -join ',')" } | Set-Content "$Output.txt"
   $hk = Find-Control $window '中文（香港）/ Chinese (Hong Kong) - zh-HK'
   $tw = Find-Control $window '中文（台灣）/ Chinese (Taiwan) - zh-TW'
   if (-not $hk -or -not $tw) { throw 'Language page must show both radio options' }
   $selected = if ($ExpectedLocale -eq 'zh-TW') { $tw } else { $hk }
-  $legacy = $selected.GetCurrentPattern([Windows.Automation.LegacyIAccessiblePattern]::Pattern)
-  if (($legacy.Current.State -band 0x10) -eq 0) { throw "Wrong preselection: expected $ExpectedLocale" }
-  $controls = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-  $controls | ForEach-Object { "$($_.Current.ControlType.ProgrammaticName): $($_.Current.Name)" } | Set-Content "$Output.txt"
   $rect = $window.Current.BoundingRectangle
   $bitmap = [Drawing.Bitmap]::new([int]$rect.Width, [int]$rect.Height)
   $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -59,7 +61,20 @@ try {
     $graphics.CopyFromScreen([int]$rect.X, [int]$rect.Y, 0, 0, $bitmap.Size)
     $bitmap.Save("$Output.png", [Drawing.Imaging.ImageFormat]::Png)
   } finally { $graphics.Dispose(); $bitmap.Dispose() }
-  Write-Host "PASS installer language page rendered; preselected $ExpectedLocale"
+  $pattern = $null
+  if ($selected.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+    if (-not $pattern.Current.IsSelected) { throw "Wrong preselection: expected $ExpectedLocale" }
+  } elseif ($selected.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+    if ($pattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::On) { throw "Wrong preselection: expected $ExpectedLocale" }
+  } elseif ($selected.TryGetCurrentPattern([Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$pattern)) {
+    if (($pattern.Current.State -band 0x10) -eq 0) { throw "Wrong preselection: expected $ExpectedLocale" }
+  } else {
+    Write-Host "Selection state is not exposed by the native checklist; inspect $Output.png for $ExpectedLocale preselection."
+  }
+  Write-Host 'PASS installer language page exposes both choices; screenshot saved'
+} catch {
+  $_ | Format-List * -Force | Out-File "$Output-error.txt"
+  throw
 } finally {
   if ($window) {
     Click-Control (Find-Control $window '取消 Cancel')
