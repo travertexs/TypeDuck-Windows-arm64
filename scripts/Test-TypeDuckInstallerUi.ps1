@@ -84,5 +84,8 @@ try {
     $yes = Find-Control $root '是 Yes'
     if ($yes) { Click-Control $yes }
   }
-  if (-not $process.WaitForExit(10000)) { throw 'Cancelled installer did not exit' }
+  if (-not $process.WaitForExit(10000)) {
+    $process.Kill($true)
+    throw 'Cancelled installer did not exit; stopped only this test process tree'
+  }
 }

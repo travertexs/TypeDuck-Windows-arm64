@@ -29,7 +29,9 @@ try {
   $installer = Join-Path $Artifacts 'TypeDuck-Windows-ARM64-installer/typeduck-windows-arm64-setup.exe'
   $installDir = Join-Path ${env:ProgramFiles(x86)} 'TypeDuckIME'
   $probeFailures = [System.Collections.Generic.List[string]]::new()
-  & "$PSScriptRoot/Test-TypeDuckInstallerUi.ps1" -Installer $installer -Output "$PWD/arm-validation/installer-language-hk"
+  try {
+    & "$PSScriptRoot/Test-TypeDuckInstallerUi.ps1" -Installer $installer -Output "$PWD/arm-validation/installer-language-hk"
+  } catch { $probeFailures.Add("Installer UI (HK): $_"); Write-Warning $probeFailures[$probeFailures.Count - 1] }
   $invalidExit = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/invalid-locale.log" -Locale 'zh-CN'
   if ($invalidExit -eq 0) { throw 'Unsupported locale was accepted' }
   if (Test-Path "$installDir/TypeDuckSetupHelper.exe") { throw 'Invalid locale modified the installation' }
@@ -53,6 +55,18 @@ try {
           if ($key.GetValue('RegistrationLocale') -ne $case.Expected) { throw "Wrong persisted locale in $view" }
           if ($key.GetValue('PendingRegistrationLocale')) { throw "Unexpected pending locale in $view" }
         } finally { if ($key) { $key.Dispose() } }
+        $selectedLanguage = if ($case.Expected -eq 'zh-TW') { '0x00000404' } else { '0x00000c04' }
+        $oldLanguage = if ($case.Expected -eq 'zh-TW') { '0x00000c04' } else { '0x00000404' }
+        $profileRoot = 'SOFTWARE\Microsoft\CTF\TIP\{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}\LanguageProfile'
+        $profileGuid = '{C6E8F5DF-6504-44F9-B7CF-17A195373A83}'
+        $selectedKey = $hive.OpenSubKey("$profileRoot\$selectedLanguage\$profileGuid")
+        $oldKey = $hive.OpenSubKey("$profileRoot\$oldLanguage\$profileGuid")
+        try {
+          if (-not $selectedKey -or $oldKey) { throw "Expected exactly the selected TSF language profile in $view" }
+        } finally {
+          if ($selectedKey) { $selectedKey.Dispose() }
+          if ($oldKey) { $oldKey.Dispose() }
+        }
       } finally { $hive.Dispose() }
     }
     $expectedHash = (Get-FileHash -LiteralPath "$Artifacts/frontend-ARM64X/MoqiTextService/Release/TypeDuckTextService.dll" -Algorithm SHA256).Hash
@@ -94,7 +108,9 @@ try {
       }
     }
     if ($pass -eq 'upgrade-tw') {
-      & "$PSScriptRoot/Test-TypeDuckInstallerUi.ps1" -Installer $installer -ExpectedLocale 'zh-TW' -Output "$PWD/arm-validation/installer-language-tw"
+      try {
+        & "$PSScriptRoot/Test-TypeDuckInstallerUi.ps1" -Installer $installer -ExpectedLocale 'zh-TW' -Output "$PWD/arm-validation/installer-language-tw"
+      } catch { $probeFailures.Add("Installer UI (TW): $_"); Write-Warning $probeFailures[$probeFailures.Count - 1] }
     }
     if ((Get-FileHash -LiteralPath $sentinel).Hash -ne $sentinelHash) { throw 'An update changed the existing user data sentinel' }
   }
