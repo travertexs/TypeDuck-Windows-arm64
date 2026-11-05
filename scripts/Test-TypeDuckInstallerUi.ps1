@@ -27,7 +27,7 @@ function Find-Control($Root, [string]$Name) {
   $hint = switch ($Name) { '下一步 Next >' { 'Next' }; '取消 Cancel' { 'Cancel' }; '是 Yes' { 'Yes' }; default { '' } }
   if ($hint) {
     $buttons = $Root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-    $matches = @($buttons | Where-Object { $_.Current.Name -like "*$hint*" -and ($_.Current.ClassName -eq 'TNewButton' -or $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button) })
+    $matches = @($buttons | Where-Object { $_.Current.Name -like "*$hint*" -and ($_.Current.ClassName -in @('TNewButton','Button') -or $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button) })
     if ($matches.Count -eq 1) { return $matches[0] }
   }
   return $null
@@ -112,6 +112,10 @@ try {
       $yes = Find-Control $root '是 Yes'
     }
     if ($yes) { Click-Control $yes }
+    else {
+      $root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
+        ForEach-Object { "$($_.Current.Name); class=$($_.Current.ClassName); hwnd=$($_.Current.NativeWindowHandle)" } | Set-Content "$Output-cancel-controls.txt"
+    }
   }
   if (-not $process.WaitForExit(10000)) {
     $process.Kill($true)

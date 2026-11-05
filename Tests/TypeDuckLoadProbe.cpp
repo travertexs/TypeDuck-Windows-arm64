@@ -59,11 +59,14 @@ int Probe(const wchar_t* locale, bool testPackets) {
   ComPtr<ITfInputProcessorProfileMgr> profiles;
   CHECK_HR(CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
                             IID_PPV_ARGS(&profiles)));
+  ComPtr<ITfInputProcessorProfiles> languages;
+  CHECK_HR(profiles.As(&languages));
+  // Refresh this test thread's input-language context after a registration
+  // migration before asking TSF for its cached language profile.
+  CHECK_HR(languages->ChangeCurrentLanguage(selected));
   TF_INPUTPROCESSORPROFILE profile = {};
   CHECK_HR(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected, clsid, profileId, nullptr, &profile));
   CHECK(FAILED(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, old, clsid, profileId, nullptr, &profile)));
-  ComPtr<ITfInputProcessorProfiles> languages;
-  CHECK_HR(profiles.As(&languages));
   BOOL enabled = FALSE;
   CHECK_HR(languages->IsEnabledLanguageProfile(clsid, selected, profileId, &enabled));
   CHECK(enabled);
@@ -78,7 +81,6 @@ int Probe(const wchar_t* locale, bool testPackets) {
   CHECK_HR(document->CreateContext(client, 0, nullptr, &context, &cookie));
   CHECK_HR(document->Push(context.Get()));
   CHECK_HR(thread->SetFocus(document.Get()));
-  CHECK_HR(languages->ChangeCurrentLanguage(selected));
   CHECK_HR(profiles->ActivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected,
                                     clsid, profileId, nullptr, TF_IPPMF_FORPROCESS));
   ComPtr<ITfFunctionProvider> discovered;
