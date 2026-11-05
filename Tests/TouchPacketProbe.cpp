@@ -58,8 +58,22 @@ int ProbeTouchPackets(ITfKeyEventSink* sink) {
       nullptr, nullptr, wc.hInstance, &state);
   if (!window) return 4;
   ShowWindow(window, SW_SHOWNORMAL);
+  // A CI shell may own foreground input. Join its queue briefly so this
+  // explicitly requested, disposable test window can activate, then detach.
+  const DWORD foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), nullptr);
+  const DWORD testThread = GetCurrentThreadId();
+  const bool attached = foregroundThread && foregroundThread != testThread &&
+      AttachThreadInput(testThread, foregroundThread, TRUE);
+  BringWindowToTop(window);
   SetForegroundWindow(window);
   SetFocus(window);
+  if (attached) AttachThreadInput(testThread, foregroundThread, FALSE);
+  const auto focusDeadline = GetTickCount64() + 500;
+  while (GetForegroundWindow() != window && GetTickCount64() < focusDeadline) {
+    MSG msg;
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+    Sleep(10);
+  }
   if (GetForegroundWindow() != window) {
     DWORD session = 0;
     ProcessIdToSessionId(GetCurrentProcessId(), &session);
