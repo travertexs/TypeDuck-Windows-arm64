@@ -15,9 +15,38 @@ permissions:
   actions: read
 
 jobs:
+  probes:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build current installed-runtime probes
+        run: |
+          ./scripts/Apply-TypeDuckSubmodulePatches.ps1
+          foreach ($arch in 'Win32','x64','ARM64') {
+            cmake -S Tests/InstalledRuntime -B "probe-$arch" -G 'Visual Studio 17 2022' -A $arch
+            if ($LASTEXITCODE) { throw "Configure failed: $arch" }
+            cmake --build "probe-$arch" --config Release
+            if ($LASTEXITCODE) { throw "Probe build failed: $arch" }
+            New-Item "current-probes/$arch" -ItemType Directory -Force | Out-Null
+            Copy-Item "probe-$arch/Release/TypeDuckLoadProbe.exe" "current-probes/$arch"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Current-runtime-probes
+          path: current-probes/
+          if-no-files-found: error
+
   validate:
+    needs: probes
     runs-on: windows-11-arm
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
@@ -41,6 +70,16 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ env.ARTIFACT_RUN_ID }}
           path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: Current-runtime-probes
+          path: current-probes
+      - name: Use probes from the validation commit
+        run: |
+          Copy-Item current-probes/Win32/TypeDuckLoadProbe.exe artifacts/frontend-Win32/TypeDuckLoadProbe.exe
+          Copy-Item current-probes/x64/TypeDuckLoadProbe.exe artifacts/frontend-x64/TypeDuckLoadProbe.exe
+          Copy-Item current-probes/ARM64/TypeDuckLoadProbe.exe artifacts/frontend-ARM64X/ARM64-tests/TypeDuckLoadProbe.exe
+          Get-ChildItem current-probes -Filter '*.exe' -Recurse | Get-FileHash | Format-Table | Out-File arm-validation/probe-hashes.txt
       - name: Test installed ARM64 runtime, upgrade and uninstall
         run: ./scripts/Test-TypeDuckArmInstall.ps1 -Artifacts "$PWD/artifacts"
       - uses: actions/upload-artifact@v4
