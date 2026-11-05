@@ -12,6 +12,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class TypeDuckUiTest {
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
 }
@@ -22,8 +23,9 @@ function Find-Control($Root, [string]$Name) {
 }
 function Click-Control($Control) {
   if ($null -eq $Control) { throw 'Expected installer control was not found' }
+  Write-Host "Click installer control: $($Control.Current.Name)"
   if ($Control.Current.NativeWindowHandle -ne 0) {
-    [TypeDuckUiTest]::SendMessage([IntPtr]$Control.Current.NativeWindowHandle, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    [TypeDuckUiTest]::PostMessage([IntPtr]$Control.Current.NativeWindowHandle, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
   } else {
     $pattern = $Control.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
     $pattern.Invoke()
