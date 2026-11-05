@@ -63,7 +63,19 @@ int Probe(const wchar_t* locale, bool testPackets) {
   CHECK_HR(profiles.As(&languages));
   // Refresh this test thread's input-language context after a registration
   // migration before asking TSF for its cached language profile.
-  CHECK_HR(languages->ChangeCurrentLanguage(selected));
+  HRESULT languageResult = E_FAIL;
+  const auto languageDeadline = GetTickCount64() + 5000;
+  int refreshAttempts = 0;
+  do {
+    languageResult = languages->ChangeCurrentLanguage(selected);
+    if (SUCCEEDED(languageResult)) break;
+    MSG message;
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+    Sleep(50);
+    ++refreshAttempts;
+  } while (languageResult == E_FAIL && GetTickCount64() < languageDeadline);
+  CHECK_HR(languageResult);
+  if (refreshAttempts) std::printf("TSF migration notification settled after %d refresh attempts\n", refreshAttempts);
   TF_INPUTPROCESSORPROFILE profile = {};
   CHECK_HR(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected, clsid, profileId, nullptr, &profile));
   CHECK(FAILED(profiles->GetProfile(TF_PROFILETYPE_INPUTPROCESSOR, old, clsid, profileId, nullptr, &profile)));
