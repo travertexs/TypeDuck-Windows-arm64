@@ -108,7 +108,8 @@ int Probe(const wchar_t* locale, bool testPackets) {
     CHECK_HR(openClose->SetValue(client, &value));
     ComPtr<ITfKeyEventSink> sink;
     CHECK_HR(discovered.As(&sink));
-    CHECK(ProbeTouchPackets(sink.Get()) == 0);
+    const int packetResult = ProbeTouchPackets(sink.Get());
+    CHECK(packetResult == 0 || packetResult == 77);
   }
   discovered.Reset();
   CHECK_HR(profiles->DeactivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, selected,

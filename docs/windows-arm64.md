@@ -18,9 +18,11 @@ Download `TypeDuck-Windows-ARM64-installer` from the successful workflow run.
 It contains `typeduck-windows-arm64-setup.exe` and `SHA256SUMS.txt`.
 These fork builds are unsigned and are not an official TypeDuck release.
 
-`Validate Windows ARM64 installer` can retest an existing build without compiling
-again. Supply its numeric Actions run ID and full source commit SHA. The workflow
-checks that provenance before downloading its installer and frontend test tools.
+`Validate Windows ARM64 installer` can retest an existing installer without
+rebuilding the product. Supply its numeric Actions run ID and full source commit
+SHA. The workflow checks that provenance, builds the small runtime probes from
+the validation commit, and records both revisions and the probe hashes. This
+lets test corrections be validated against an unchanged installer artifact.
 
 The workflow pins the backend and schema commits. C++ dependencies use the
 upstream submodule pins and versioned downloads. Build logs retain the resolved

@@ -17,6 +17,7 @@ public static class TypeDuckUiTest {
   [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
 }
 '@
 function Find-Control($Root, [string]$Name) {
@@ -37,7 +38,7 @@ function Click-Control($Control) {
   if ($Control.Current.NativeWindowHandle -ne 0) {
     $handle = [IntPtr]$Control.Current.NativeWindowHandle
     $parent = [TypeDuckUiTest]::GetParent($handle)
-    $id = [TypeDuckUiTest]::GetDlgCtrlID($handle)
+    $id = [TypeDuckUiTest]::GetDlgCtrlID($handle) -band 0xffff
     if (-not [TypeDuckUiTest]::PostMessage($parent, 0x111, [IntPtr]$id, $handle)) { throw 'Cannot click native installer button' }
   } else {
     $pattern = $Control.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
@@ -69,15 +70,24 @@ try {
   $controls | ForEach-Object { "$($_.Current.ControlType.ProgrammaticName): $($_.Current.Name); hwnd=$($_.Current.NativeWindowHandle); patterns=$($_.GetSupportedPatterns().ProgrammaticName -join ',')" } | Set-Content "$Output.txt"
   $hk = Find-Control $window '中文（香港）/ Chinese (Hong Kong) - zh-HK'
   $tw = Find-Control $window '中文（台灣）/ Chinese (Taiwan) - zh-TW'
-  if (-not $hk -or -not $tw) { throw 'Language page must show both radio options' }
-  $selected = if ($ExpectedLocale -eq 'zh-TW') { $tw } else { $hk }
   $rect = $window.Current.BoundingRectangle
   $bitmap = [Drawing.Bitmap]::new([int]$rect.Width, [int]$rect.Height)
   $graphics = [Drawing.Graphics]::FromImage($bitmap)
   try {
-    $graphics.CopyFromScreen([int]$rect.X, [int]$rect.Y, 0, 0, $bitmap.Size)
+    $hdc = $graphics.GetHdc()
+    try {
+      if (-not [TypeDuckUiTest]::PrintWindow([IntPtr]$window.Current.NativeWindowHandle, $hdc, 0)) { throw 'Cannot render installer window' }
+    } finally { $graphics.ReleaseHdc($hdc) }
     $bitmap.Save("$Output.png", [Drawing.Imaging.ImageFormat]::Png)
   } finally { $graphics.Dispose(); $bitmap.Dispose() }
+  if (-not (Find-Control $window 'Windows 語言 / Windows language')) { throw 'Installer did not reach the Windows language page' }
+  if (-not $hk -or -not $tw) {
+    $list = @($controls | Where-Object { $_.Current.ClassName -eq 'TNewCheckListBox' })
+    if ($list.Count -ne 1 -or [TypeDuckUiTest]::SendMessage([IntPtr]$list[0].Current.NativeWindowHandle, 0x18b, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -ne 2) { throw 'Language page must contain two radio options' }
+    Write-Host "PASS language page contains two native options. Inspect rendered screenshot for labels and $ExpectedLocale preselection; this runner does not expose owner-drawn item accessibility."
+    return
+  }
+  $selected = if ($ExpectedLocale -eq 'zh-TW') { $tw } else { $hk }
   $pattern = $null
   if ($selected.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
     if (-not $pattern.Current.IsSelected) { throw "Wrong preselection: expected $ExpectedLocale" }

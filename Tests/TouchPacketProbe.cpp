@@ -60,7 +60,15 @@ int ProbeTouchPackets(ITfKeyEventSink* sink) {
   ShowWindow(window, SW_SHOWNORMAL);
   SetForegroundWindow(window);
   SetFocus(window);
-  if (GetForegroundWindow() != window) state.failed = true;
+  if (GetForegroundWindow() != window) {
+    DWORD session = 0;
+    ProcessIdToSessionId(GetCurrentProcessId(), &session);
+    std::printf("SKIP SendInput: test window cannot obtain foreground (session %lu, foreground %p). Requires an interactive desktop.\n",
+                session, static_cast<void*>(GetForegroundWindow()));
+    DestroyWindow(window);
+    UnregisterClassW(wc.lpszClassName, wc.hInstance);
+    return 77;
+  }
   for (wchar_t character : {L'n', L'e', L'i', L'5', L' ', wchar_t(0xf003), wchar_t(0xf004)}) {
     if (state.failed) break;
     state.expected = character;

@@ -156,6 +156,7 @@ const
 
 var
   HelperInstallSucceeded: Boolean;
+  HelperInstallAttempted: Boolean;
   HelperInstallFailed: Boolean;
   HelperInstallNeedsRestart: Boolean;
   HelperUninstallFailed: Boolean;
@@ -466,8 +467,6 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var
-  ResultCode: Integer;
 begin
   if CurStep = ssInstall then
   begin
@@ -477,13 +476,24 @@ begin
     DeleteTypeDuckReregisterTask;
   end;
 
-  if CurStep = ssPostInstall then
+end;
+
+function NeedRestart(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := HelperInstallNeedsRestart;
+  { Inno calls NeedRestart after files/registry are installed, before saving
+    uninstall information. ssPostInstall is too late to request a restart. }
+  if not HelperInstallAttempted then
   begin
+    HelperInstallAttempted := True;
     if not RunSetupHelper(BuildInstallSetupHelperParameters('/i'), ResultCode) then
     begin
       HandleInstallSetupHelperFailure;
       Exit;
     end;
+    Log('TypeDuck setup helper returned ' + IntToStr(ResultCode));
 
     if ResultCode = SetupHelperExitSuccess then
     begin
@@ -501,10 +511,6 @@ begin
       Exit;
     end;
   end;
-end;
-
-function NeedRestart(): Boolean;
-begin
   Result := HelperInstallNeedsRestart;
 end;
 
