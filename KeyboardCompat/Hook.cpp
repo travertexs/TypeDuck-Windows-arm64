@@ -2,6 +2,7 @@
 #include <detours.h>
 #include <tlhelp32.h>
 #include <winstring.h>
+#include <unknwn.h>
 #include <atomic>
 #include <cstring>
 
