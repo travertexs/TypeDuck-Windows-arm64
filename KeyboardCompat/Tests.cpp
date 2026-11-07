@@ -58,7 +58,6 @@ int main() {
   Check(!IsTypeDuckTip(other), "Other profile GUID stays unchanged");
   Check(!IsTypeDuckTip(tw + L"x") && !IsTypeDuckTip(tw.substr(0, 40)) && !IsTypeDuckTip(L""), "Malformed profile stays unchanged");
   Check(!IsWindowsInputHostPath(L"C:\\Temp\\TextInputHost.exe"), "Untrusted executable location rejected");
-  Check(Sha256File(L"Z:\\nonexistent-typeduck-compat-test").empty(), "Missing binary cannot match allowlist");
   std::array<BYTE, 16> before{};
   std::memcpy(before.data(), reinterpret_cast<void*>(Original), before.size());
   LONG status = DetourTransactionBegin();

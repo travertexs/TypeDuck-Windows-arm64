@@ -19,6 +19,7 @@
 
 #include "MoqiTextService.h"
 #include "TouchKeyboard.h"
+#include "CandidatePlacement.h"
 #include <assert.h>
 #include <string>
 #include <algorithm>
@@ -48,7 +49,6 @@ std::wstring currentProcessPath();
 std::wstring processBaseName(const std::wstring& imagePath);
 std::wstring timestampNow();
 std::wstring formatDebugLogLine(const std::wstring& message);
-constexpr ULONGLONG kCandidateWindowMoveThrottleMs = 50;
 constexpr int kCandidateDpiBaseline = 96;
 constexpr const wchar_t* kTypeDuckAppearanceRelativePath = L"configs\\TypeDuckAppearance.json";
 
@@ -536,33 +536,7 @@ bool displayPreferencesEqual(const TypeDuck::DisplayPreferences& left,
 		left.showReverseCode == right.showReverseCode;
 }
 
-POINT clampCandidateWindowToWorkArea(const RECT& anchorRect, const SIZE& popupSize) {
-	MONITORINFO monitorInfo{};
-	monitorInfo.cbSize = sizeof(monitorInfo);
-	const HMONITOR monitor = ::MonitorFromRect(&anchorRect, MONITOR_DEFAULTTONEAREST);
-	RECT workArea{};
-	if (monitor != nullptr && ::GetMonitorInfoW(monitor, &monitorInfo)) {
-		workArea = monitorInfo.rcWork;
-	}
-	else {
-		::SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
-	}
 
-	POINT pos{anchorRect.left, anchorRect.bottom};
-	if (pos.x + popupSize.cx > workArea.right) {
-		pos.x = workArea.right - popupSize.cx;
-	}
-	if (pos.x < workArea.left) {
-		pos.x = workArea.left;
-	}
-	if (pos.y + popupSize.cy > workArea.bottom) {
-		pos.y = anchorRect.top - popupSize.cy;
-	}
-	if (pos.y < workArea.top) {
-		pos.y = workArea.top;
-	}
-	return pos;
-}
 
 }
 
@@ -585,9 +559,6 @@ TextService::TextService(ImeModule* module):
 	hasAppliedCandidateContent_(false),
 	hasAppliedCandidateCursor_(false),
 	appliedCandidateCursor_(0),
-	hasLastCandidateWindowPos_(false),
-	lastCandidateWindowPos_{0, 0},
-	lastCandidateWindowMoveTick_(0),
 	updateFont_(false),
 	candidatePageIndex_(0),
 	candidatePageSize_(0),
@@ -1244,9 +1215,6 @@ void TextService::invalidateCandidateUiCache() {
 	hasAppliedCandidateContent_ = false;
 	hasAppliedCandidateCursor_ = false;
 	appliedCandidateCursor_ = 0;
-	hasLastCandidateWindowPos_ = false;
-	lastCandidateWindowPos_ = {0, 0};
-	lastCandidateWindowMoveTick_ = 0;
 }
 
 bool TextService::isCandidateContentApplied(const std::wstring& renderedPreedit) const {
@@ -1263,11 +1231,12 @@ void TextService::markCandidateContentApplied(const std::wstring& renderedPreedi
 	hasAppliedCandidateContent_ = true;
 }
 
-bool TextService::moveCandidateWindowToInputRect(Ime::EditSession* session, const wchar_t* reason, bool throttleSamePosition) {
+bool TextService::moveCandidateWindowToInputRect(Ime::EditSession* session, const wchar_t* reason, bool /*throttleSamePosition*/) {
 	if (!candidateWindow_) {
 		return false;
 	}
 
+	CandidatePlacement::PhysicalCoordinates coordinates;
 	RECT textRect{};
 	bool usedFallbackAnchor = false;
 	if (!inputRect(session, &textRect)) {
@@ -1281,33 +1250,7 @@ bool TextService::moveCandidateWindowToInputRect(Ime::EditSession* session, cons
 		}
 	}
 
-	RECT windowRect{};
-	::GetWindowRect(candidateWindow_->hwnd(), &windowRect);
-	const SIZE popupSize{
-		(std::max)(1L, windowRect.right - windowRect.left),
-		(std::max)(1L, windowRect.bottom - windowRect.top)};
-	const POINT nextPos = clampCandidateWindowToWorkArea(textRect, popupSize);
-	const ULONGLONG now = ::GetTickCount64();
-	if (throttleSamePosition && hasLastCandidateWindowPos_ &&
-		lastCandidateWindowPos_.x == nextPos.x &&
-		lastCandidateWindowPos_.y == nextPos.y &&
-		now - lastCandidateWindowMoveTick_ < kCandidateWindowMoveThrottleMs) {
-		return false;
-	}
-
-	::SetWindowPos(candidateWindow_->hwnd(), HWND_TOPMOST, nextPos.x, nextPos.y, 0, 0,
-		SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
-	hasLastCandidateWindowPos_ = true;
-	lastCandidateWindowPos_ = nextPos;
-	lastCandidateWindowMoveTick_ = now;
-
-	std::wostringstream log;
-	log << L"[TextService::" << reason << L"] moved left=" << nextPos.x
-		<< L" top=" << nextPos.y
-		<< L" fallback_anchor=" << boolText(usedFallbackAnchor)
-		<< L" popup_size=(" << popupSize.cx << L"," << popupSize.cy << L")";
-	appendCandidateWindowLog(log.str());
-	return true;
+	return candidateWindow_->positionAtInputRect(textRect);
 }
 
 // show candidate list window

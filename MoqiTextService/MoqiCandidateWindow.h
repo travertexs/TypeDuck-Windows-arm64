@@ -7,6 +7,7 @@
 #include <LibIME2/src/ComObject.h>
 #include <LibIME2/src/ImeWindow.h>
 #include "TypeDuckCandidateInfo.h"
+#include <shobjidl.h>
 
 #include <map>
 #include <string>
@@ -85,6 +86,7 @@ public:
     void syncOwner(Ime::EditSession* session);
     void recalculateSize() override;
     void refresh();
+    bool positionAtInputRect(const RECT& anchor);
 
 protected:
     ~CandidateWindow(void) override;
@@ -92,6 +94,11 @@ protected:
     LRESULT wndProc(UINT msg, WPARAM wp, LPARAM lp) override;
 
 private:
+    bool repositionForInputPane();
+    RECT inputAnchor_{};
+    bool hasInputAnchor_ = false;
+    IFrameworkInputPane* inputPane_ = nullptr;
+    bool inputPaneAttempted_ = false;
     void onPaint();
     void renderSurface(HDC hdc, const RECT& rc, bool transparentOutsidePanels);
     void presentLayeredSurface();

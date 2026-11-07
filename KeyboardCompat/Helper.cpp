@@ -81,7 +81,7 @@ static DWORD ControlHost(DWORD pid, ULONG_PTR command, const std::wstring& hookP
     }
   }
   // The hook resolves compatible code at runtime; no Windows version is checked.
-  if (!supported) return ERROR_NOT_SUPPORTED;
+  if (!supported) { state = 0; return command == 0 ? ERROR_MOD_NOT_FOUND : NO_ERROR; }
   if (!hookBase) {
     if (command != 0) { state = 0; return NO_ERROR; }
     const uintptr_t loader = RemoteLoadLibraryAddress(modules);
@@ -126,22 +126,71 @@ static std::vector<DWORD> InputHosts() {
   Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
   PROCESSENTRY32W entry{sizeof(entry)};
   if (snapshot.value != INVALID_HANDLE_VALUE && Process32FirstW(snapshot.value, &entry)) do {
-    if (_wcsicmp(entry.szExeFile, L"TextInputHost.exe") == 0) result.push_back(entry.th32ProcessID);
+    if (_wcsicmp(entry.szExeFile, L"TextInputHost.exe") == 0) {
+      Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID));
+      if (process.value && SameUserAndSession(process.value, entry.th32ProcessID)) result.push_back(entry.th32ProcessID);
+    }
   } while (Process32NextW(snapshot.value, &entry));
   return result;
 }
 
+static constexpr wchar_t kWatcherMutex[] = L"Local\\TypeDuckKeyboardCompat.Watcher";
+static constexpr wchar_t kWatcherStop[] = L"Local\\TypeDuckKeyboardCompat.Stop";
+
+static int Watch(const std::wstring& hook) {
+  Handle mutex(CreateMutexW(nullptr, TRUE, kWatcherMutex));
+  const DWORD mutexError = GetLastError();
+  if (!mutex.value) return mutexError;
+  if (mutexError == ERROR_ALREADY_EXISTS) return 0;
+  Handle stop(CreateEventW(nullptr, TRUE, FALSE, kWatcherStop));
+  if (!stop.value) { ReleaseMutex(mutex.value); return GetLastError(); }
+  ResetEvent(stop.value);
+  DWORD attemptedPid{};
+  ULONGLONG attemptedCreation{};
+  while (WaitForSingleObject(stop.value, 0) == WAIT_TIMEOUT) {
+    for (DWORD pid : InputHosts()) {
+      Handle target(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid));
+      FILETIME created{}, exited{}, kernel{}, user{};
+      if (!target.value || !SameUserAndSession(target.value, pid) ||
+          !GetProcessTimes(target.value, &created, &exited, &kernel, &user)) continue;
+      const ULONGLONG creation = (static_cast<ULONGLONG>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+      if (pid == attemptedPid && creation == attemptedCreation) continue;
+      DWORD state{};
+      const DWORD error = ControlHost(pid, 0, hook, state);
+      // TextInput.dll can load lazily after the host starts. Retry that case.
+      // Other failures are reported by --status; do not repeatedly touch a host.
+      if (error != ERROR_MOD_NOT_FOUND) { attemptedPid = pid; attemptedCreation = creation; }
+    }
+    if (WaitForSingleObject(stop.value, 2000) != WAIT_TIMEOUT) break;
+  }
+  for (DWORD pid : InputHosts()) { DWORD state{}; ControlHost(pid, 1, hook, state); }
+  ReleaseMutex(mutex.value);
+  return 0;
+}
+
+static DWORD StopWatcher() {
+  Handle stop(OpenEventW(EVENT_MODIFY_STATE, FALSE, kWatcherStop));
+  if (stop.value && !SetEvent(stop.value)) return GetLastError();
+  Handle mutex(OpenMutexW(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, kWatcherMutex));
+  if (!mutex.value) return GetLastError() == ERROR_FILE_NOT_FOUND ? NO_ERROR : GetLastError();
+  const DWORD waited = WaitForSingleObject(mutex.value, 30000);
+  if (waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED) { ReleaseMutex(mutex.value); return NO_ERROR; }
+  return waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError();
+}
+
 int wmain(int argc, wchar_t** argv) {
-  if (argc != 2 || (wcscmp(argv[1], L"--apply") && wcscmp(argv[1], L"--status") && wcscmp(argv[1], L"--stop"))) {
-    std::wcerr << L"用法 / Usage: TypeDuckKeyboardCompat --apply | --status | --stop\n";
+  if (argc != 2 || (wcscmp(argv[1], L"--apply") && wcscmp(argv[1], L"--status") && wcscmp(argv[1], L"--stop") && wcscmp(argv[1], L"--watch"))) {
+    std::wcerr << L"用法 / Usage: TypeDuckKeyboardCompat --apply | --status | --stop | --watch\n";
     return ERROR_INVALID_PARAMETER;
   }
   wchar_t self[32768]{};
   if (!GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)))) return GetLastError();
   const auto hook = (std::filesystem::path(self).parent_path() / kHookName).wstring();
+  if (!wcscmp(argv[1], L"--watch")) return Watch(hook);
+  if (!wcscmp(argv[1], L"--stop")) { const DWORD error = StopWatcher(); if (error) return error; }
   const ULONG_PTR command = !wcscmp(argv[1], L"--status") ? 2 : (!wcscmp(argv[1], L"--stop") ? 1 : 0);
   const auto hosts = InputHosts();
-  if (hosts.empty()) { std::cout << "{\"error\":1168,\"message\":\"Windows input host is not running\"}\n"; return ERROR_NOT_FOUND; }
+  if (hosts.empty()) { std::cout << "{\"error\":0,\"active\":false,\"message\":\"Windows input host is not running\"}\n"; return command == 0 ? ERROR_NOT_FOUND : 0; }
   DWORD last = ERROR_NOT_FOUND;
   for (DWORD pid : hosts) {
     DWORD state{};

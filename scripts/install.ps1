@@ -36,6 +36,7 @@ param(
     [string] $Win32BuildDir = "",
     [string] $X64BuildDir = "",
     [string] $Arm64XBuildDir = "",
+    [string] $KeyboardCompatBuildDir = "",
     [string] $MoqiImeSource = "",
     [switch] $SkipMoqiImeCopy,
     [string] $StageDir = "",
@@ -462,6 +463,14 @@ if ($Arm64XBuildDir) {
     $arm64Stage = Join-Path $stageWin32Root "arm64"
     New-Item -ItemType Directory -Path $arm64Stage -Force | Out-Null
     Copy-Item -LiteralPath $arm64Dll -Destination $arm64Stage
+}
+
+if ($KeyboardCompatBuildDir) {
+    $compatStage = Join-Path $stageWin32Root 'KeyboardCompat'
+    New-Item -ItemType Directory -Path $compatStage -Force | Out-Null
+    foreach ($file in 'TypeDuckKeyboardCompat.exe', 'TypeDuckKeyboardCompatHook.dll', 'Detours-LICENSE.md') {
+        Copy-IfExists -Source (Join-Path $KeyboardCompatBuildDir $file) -Destination (Join-Path $compatStage $file)
+    }
 }
 
 if (-not $SkipMoqiImeCopy) {

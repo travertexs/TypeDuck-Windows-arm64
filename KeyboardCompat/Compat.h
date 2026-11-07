@@ -19,41 +19,6 @@ inline bool IsTypeDuckTip(std::wstring_view tip) {
                               suffix.data(), static_cast<int>(suffix.size()), TRUE) == CSTR_EQUAL;
 }
 
-inline std::wstring Sha256File(const std::wstring& path) {
-  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
-                            nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return {};
-  BCRYPT_ALG_HANDLE algorithm{};
-  BCRYPT_HASH_HANDLE hash{};
-  std::wstring result;
-  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) >= 0) {
-    DWORD objectSize{}, used{};
-    if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectSize),
-                          sizeof(objectSize), &used, 0) >= 0) {
-      std::vector<UCHAR> object(objectSize);
-      if (BCryptCreateHash(algorithm, &hash, object.data(), objectSize, nullptr, 0, 0) >= 0) {
-        std::array<UCHAR, 65536> buffer{};
-        DWORD count{};
-        bool good = true;
-        for (;;) {
-          if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) { good = false; break; }
-          if (!count) break;
-          if (BCryptHashData(hash, buffer.data(), count, 0) < 0) { good = false; break; }
-        }
-        std::array<UCHAR, 32> digest{};
-        if (good && BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) >= 0) {
-          constexpr wchar_t hex[] = L"0123456789ABCDEF";
-          for (UCHAR byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; }
-        }
-        BCryptDestroyHash(hash);
-      }
-    }
-    BCryptCloseAlgorithmProvider(algorithm, 0);
-  }
-  CloseHandle(file);
-  return result;
-}
-
 inline bool IsWindowsInputHostPath(const std::wstring& path) {
   wchar_t windows[MAX_PATH]{};
   if (!GetWindowsDirectoryW(windows, MAX_PATH)) return false;

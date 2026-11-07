@@ -1,10 +1,6 @@
 name: Build compact keyboard compatibility prototype
 on:
-  push:
-    branches: [windows-arm64]
-    paths:
-      - KeyboardCompat/**
-      - .github/workflows/keyboard-compat.yml
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
@@ -46,6 +42,23 @@ jobs:
         run: |
           ./artifact/TypeDuckKeyboardCompatTests.exe | Tee-Object test-results.txt
           if ($LASTEXITCODE) { throw 'Native tests failed' }
+      - name: Verify watcher startup, single instance and clean exit
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path artifact/TypeDuckKeyboardCompat.exe).Path
+          $watcher = Start-Process $exe -ArgumentList '--watch' -WindowStyle Hidden -PassThru
+          try {
+            Start-Sleep -Seconds 2
+            if ($watcher.HasExited) { throw 'Watcher exited early' }
+            $second = Start-Process $exe -ArgumentList '--watch' -WindowStyle Hidden -PassThru
+            if (-not $second.WaitForExit(10000) -or $second.ExitCode -ne 0) { throw 'Single instance check failed' }
+            $stop = Start-Process $exe -ArgumentList '--stop' -WindowStyle Hidden -PassThru
+            if (-not $stop.WaitForExit(45000) -or $stop.ExitCode -ne 0) { throw 'Watcher stop failed' }
+            if (-not $watcher.WaitForExit(10000) -or $watcher.ExitCode -ne 0) { throw 'Watcher did not exit cleanly' }
+            'PASS watcher startup, single instance and clean exit' | Add-Content test-results.txt
+          } finally {
+            if (-not $watcher.HasExited) { Stop-Process -Id $watcher.Id -Force }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

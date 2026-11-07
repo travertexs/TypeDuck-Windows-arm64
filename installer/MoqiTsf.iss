@@ -118,7 +118,13 @@ UninstalledMost=TypeDuck 已解除安裝，但有部分檔案需重新啟動電�
 UninstalledAndNeedsRestart=TypeDuck 已解除安裝。如 TypeDuck 仍然出現，請重新啟動電腦。%nTypeDuck is uninstalled. If TypeDuck still appears, restart your computer.
 
 [Files]
-Source: "{#StageDir}\win32\TypeDuckIME\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageDir}\win32\TypeDuckIME\*"; DestDir: "{app}"; Excludes: "KeyboardCompat\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+#if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\KeyboardCompat\TypeDuckKeyboardCompat.exe")
+Source: "{#StageDir}\win32\TypeDuckIME\KeyboardCompat\*"; DestDir: "{app}\KeyboardCompat"; Flags: ignoreversion restartreplace uninsrestartdelete; Check: IsArm64
+
+[Tasks]
+Name: compactkeyboard; Description: "支援 Windows 小型觸控鍵盤 / Support the Windows Small touch keyboard"; Check: IsArm64
+#endif
 
 [Icons]
 Name: "{autoprograms}\TypeDuckIME\輸入法設定 IME Settings"; Filename: "{app}\TypeDuckSettings.exe"
@@ -126,11 +132,18 @@ Name: "{autoprograms}\TypeDuckIME\關於 About TypeDuck…"; Filename: "{app}\Ty
 Name: "{autoprograms}\TypeDuckIME\解除安裝 Uninstall"; Filename: "{uninstallexe}"
 
 [Run]
+#if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\KeyboardCompat\TypeDuckKeyboardCompat.exe")
+Filename: "{app}\KeyboardCompat\TypeDuckKeyboardCompat.exe"; Parameters: "--watch"; Flags: nowait runhidden runasoriginaluser; Tasks: compactkeyboard; Check: CanStartKeyboardCompat
+#endif
 Filename: "{app}\TypeDuckLauncher.exe"; Parameters: "/apply-settings"; Flags: nowait runasoriginaluser
 Filename: "{app}\TypeDuckSettings.exe"; Description: "開啟 TypeDuck 設定 / Open TypeDuck Settings"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ShouldLaunchSettings
 Filename: "{app}\TypeDuckAbout.exe"; Description: "開啟 TypeDuck 關於 / Open TypeDuck About"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ShouldLaunchAbout
 
 [Registry]
+#if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\KeyboardCompat\TypeDuckKeyboardCompat.exe")
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "TypeDuckKeyboardCompat"; ValueData: """{app}\KeyboardCompat\TypeDuckKeyboardCompat.exe"" --watch"; Flags: uninsdeletevalue; Tasks: compactkeyboard; Check: IsArm64
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "TypeDuckKeyboardCompat"; Flags: deletevalue; Check: KeyboardCompatDeselected
+#endif
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   ValueType: string; ValueName: "TypeDuckLauncher"; \
   ValueData: """{app}\TypeDuckLauncher.exe"" /apply-settings"; \
@@ -164,6 +177,7 @@ var
   HadExistingInstall: Boolean;
   DeleteUserDataOnUninstall: Boolean;
   RegistrationPage: TInputOptionWizardPage;
+  HadKeyboardCompat: Boolean;
 
 function Bilingual(const Zh: String; const En: String): String;
 begin
@@ -216,6 +230,36 @@ function SelectedRegistrationLocale: String;
 begin
   if RegistrationPage.SelectedValueIndex = 1 then Result := 'zh-TW'
   else Result := 'zh-HK';
+end;
+
+function CanStartKeyboardCompat: Boolean;
+begin
+  { A hook already loaded into Windows is left resident after detach. On an
+    update, restart activates the new DLL after Inno replaces the locked file. }
+  Result := IsArm64 and HelperInstallSucceeded and not HadKeyboardCompat;
+end;
+
+function KeyboardCompatDeselected: Boolean;
+begin
+  Result := not WizardIsTaskSelected('compactkeyboard');
+end;
+
+procedure StopKeyboardCompat;
+var
+  Helper: String;
+  Code: Integer;
+begin
+  Helper := ExpandConstant('{app}\KeyboardCompat\TypeDuckKeyboardCompat.exe');
+  if IsArm64 and FileExists(Helper) then
+  begin
+    HadKeyboardCompat := True;
+    if not Exec(Helper, '--stop', '', SW_HIDE, ewWaitUntilTerminated, Code) then
+      RaiseException(Bilingual('未能停止小型鍵盤支援。請重新啟動電腦後再試。',
+        'Could not stop Small keyboard support. Restart the computer and try again.'));
+    if (Code <> 0) and (Code <> 50) and (Code <> 126) then
+      RaiseException(Bilingual('未能移除小型鍵盤支援。請重新啟動電腦後再試。',
+        'Could not detach Small keyboard support. Restart the computer and try again.'));
+  end;
 end;
 
 procedure InitializeWizard;
@@ -470,6 +514,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
   begin
+    StopKeyboardCompat;
     MigrateLegacyTypeDuckUserMemory;
     HadExistingInstall := ExistingImeInstallationPresent;
     StopTypeDuckProcesses;
@@ -482,7 +527,7 @@ function NeedRestart(): Boolean;
 var
   ResultCode: Integer;
 begin
-  Result := HelperInstallNeedsRestart;
+  Result := HelperInstallNeedsRestart or HadKeyboardCompat;
   { Inno calls NeedRestart after files/registry are installed, before saving
     uninstall information. ssPostInstall is too late to request a restart. }
   if not HelperInstallAttempted then
@@ -511,7 +556,7 @@ begin
       Exit;
     end;
   end;
-  Result := HelperInstallNeedsRestart;
+  Result := HelperInstallNeedsRestart or HadKeyboardCompat;
 end;
 
 function ShouldLaunchSettings(): Boolean;
@@ -649,6 +694,7 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
+    StopKeyboardCompat;
     StopTypeDuckProcesses;
     DeleteTypeDuckReregisterTask;
     if DeleteUserDataOnUninstall then

@@ -4,8 +4,6 @@ on:
   push:
     branches: [windows-arm64]
     paths-ignore:
-      - KeyboardCompat/**
-      - .github/workflows/keyboard-compat.yml
       - scripts/Test-TypeDuckArmInstall.ps1
       - scripts/Test-TypeDuckInstallerUi.ps1
       - .github/workflows/validate-arm64.yml
@@ -25,6 +23,9 @@ defaults:
     shell: pwsh
 
 jobs:
+  keyboard-compat:
+    uses: ./.github/workflows/keyboard-compat.yml
+
   frontend:
     timeout-minutes: 45
     strategy:
@@ -51,7 +52,7 @@ jobs:
 
   package:
     timeout-minutes: 30
-    needs: frontend
+    needs: [frontend, keyboard-compat]
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +75,10 @@ jobs:
         with:
           pattern: frontend-*
           path: frontend/artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: Keyboard-compat-ARM64
+          path: frontend/keyboard-compat-artifact
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
@@ -109,7 +114,7 @@ jobs:
       - name: Package Windows on Arm installer
         working-directory: frontend
         run: |
-          ./scripts/install.ps1 -Win32BuildDir "$PWD/artifacts/frontend-Win32" -X64BuildDir "$PWD/artifacts/frontend-x64" -Arm64XBuildDir "$PWD/artifacts/frontend-ARM64X" -MoqiImeSource "$env:GITHUB_WORKSPACE/backend/scripts/build/TypeDuckRuntime"
+          ./scripts/install.ps1 -Win32BuildDir "$PWD/artifacts/frontend-Win32" -X64BuildDir "$PWD/artifacts/frontend-x64" -Arm64XBuildDir "$PWD/artifacts/frontend-ARM64X" -KeyboardCompatBuildDir "$PWD/keyboard-compat-artifact" -MoqiImeSource "$env:GITHUB_WORKSPACE/backend/scripts/build/TypeDuckRuntime"
           Copy-Item installer/dist/typeduck-windows-ime-setup.exe installer/dist/typeduck-windows-arm64-setup.exe
           Get-FileHash installer/dist/typeduck-windows-arm64-setup.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  typeduck-windows-arm64-setup.exe" } | Set-Content installer/dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4

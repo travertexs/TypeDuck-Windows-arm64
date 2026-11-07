@@ -366,9 +366,6 @@ private:
 	bool hasAppliedCandidateContent_;
 	bool hasAppliedCandidateCursor_;
 	int appliedCandidateCursor_;
-	bool hasLastCandidateWindowPos_;
-	POINT lastCandidateWindowPos_;
-	ULONGLONG lastCandidateWindowMoveTick_;
 	std::unique_ptr<Ime::MessageWindow> messageWindow_;
 	UINT messageTimerId_;
 	HFONT font_;

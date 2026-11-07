@@ -4,6 +4,7 @@
 
 #include "MoqiCandidateWindow.h"
 #include "MoqiTextService.h"
+#include "CandidatePlacement.h"
 
 #include <LibIME2/src/DebugLogConfig.h>
 #include <LibIME2/src/DebugLogFile.h>
@@ -27,6 +28,7 @@ constexpr int kPageNavNone = -1;
 constexpr int kPageNavPrevious = 0;
 constexpr int kPageNavNext = 1;
 constexpr int kWindowDpiBaseline = 96;
+constexpr UINT_PTR kInputPaneTimer = 0x54444B;
 constexpr int kBorderWidth = 1;
 constexpr int kInitialCompactPanelPaddingX = 7;
 constexpr int kInitialCompactPanelPaddingY = 3;
@@ -533,7 +535,38 @@ CandidateWindow::CandidateWindow(Ime::TextService* service, Ime::EditSession* se
 }
 
 CandidateWindow::~CandidateWindow(void) {
+    if (hwnd_) ::KillTimer(hwnd_, kInputPaneTimer);
+    if (inputPane_) inputPane_->Release();
     deleteOwnedFonts();
+}
+
+bool CandidateWindow::positionAtInputRect(const RECT& anchor) {
+    inputAnchor_ = anchor;
+    hasInputAnchor_ = true;
+    return repositionForInputPane();
+}
+
+bool CandidateWindow::repositionForInputPane() {
+    if (!hwnd_ || !hasInputAnchor_) return false;
+    CandidatePlacement::PhysicalCoordinates coordinates;
+    if (!inputPaneAttempted_) {
+        inputPaneAttempted_ = true;
+        ::CoCreateInstance(CLSID_FrameworkInputPane, nullptr, CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&inputPane_));
+    }
+    RECT keyboard{};
+    if (inputPane_ && FAILED(inputPane_->Location(&keyboard))) keyboard = {};
+    MONITORINFO monitor{sizeof(monitor)};
+    RECT work{};
+    if (::GetMonitorInfoW(::MonitorFromRect(&inputAnchor_, MONITOR_DEFAULTTONEAREST), &monitor)) work = monitor.rcWork;
+    else ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    RECT current{};
+    if (!::GetWindowRect(hwnd_, &current)) return false;
+    const POINT next = CandidatePlacement::Place(inputAnchor_,
+        {current.right - current.left, current.bottom - current.top}, work, keyboard);
+    if (next.x == current.left && next.y == current.top) return false;
+    return ::SetWindowPos(hwnd_, HWND_TOPMOST, next.x, next.y, 0, 0,
+        SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER) != FALSE;
 }
 
 STDMETHODIMP CandidateWindow::GetDescription(BSTR* pbstrDescription) {
@@ -563,10 +596,15 @@ STDMETHODIMP CandidateWindow::Show(BOOL bShow) {
         appendCandidateWindowLog(log.str());
     }
     if (shown_) {
+        repositionForInputPane();
         presentLayeredSurface();
         show();
+        // Location also reports the floating Small keyboard. Poll only while
+        // candidates are visible so a drag is handled without another keystroke.
+        ::SetTimer(hwnd_, kInputPaneTimer, 250, nullptr);
         enforceCandidateWindowTopmost(hwnd_, true, L"Show(TRUE)");
     } else {
+        ::KillTimer(hwnd_, kInputPaneTimer);
         hide();
         logCandidateWindowState(L"[CandidateWindow::hide.state]", hwnd_);
     }
@@ -1389,6 +1427,12 @@ void CandidateWindow::recalculateSize() {
 
 LRESULT CandidateWindow::wndProc(UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_TIMER:
+        if (wp == kInputPaneTimer) {
+            if (shown_) repositionForInputPane();
+            return 0;
+        }
+        return Window::wndProc(msg, wp, lp);
     case WM_PAINT:
         onPaint();
         return 0;
