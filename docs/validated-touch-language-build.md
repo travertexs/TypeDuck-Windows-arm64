@@ -1,5 +1,9 @@
 # Validated touch-keyboard and language-registration build
 
+This records the 5 November preference-only build. For the replacement installer
+with working built-in Small support and candidate avoidance, see the
+[7 November build and desktop validation](windows-small-keyboard-validation.md).
+
 Validated on 5 November 2026 using GitHub Actions under `travertexs`.
 
 The installer adds a bilingual Windows language page with **Chinese (Hong Kong),

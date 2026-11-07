@@ -1,5 +1,10 @@
 # Compact touch keyboard: local debugging findings
 
+This is the diagnostic record for the earlier preference-only build. The
+[7 November compatibility build](windows-small-keyboard-validation.md) subsequently
+enabled Windows' built-in Small layout and passed desktop typing and candidate
+movement checks on the same host.
+
 On 5 November 2026, the installed TypeDuck build was investigated on a Windows
 11 Arm device after the user reported that Small/compact remained unavailable.
 **The compact-layout requirement is not satisfied by this build.**

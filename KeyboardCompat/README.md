@@ -1,4 +1,4 @@
-# Built-in Small keyboard compatibility prototype
+# Built-in Small keyboard compatibility
 
 Windows 11 ARM64 build 29698.1000 selects a restricted touch-keyboard definition
 for the TypeDuck zh-TW profile. A live trace identified the exact TypeDuck CLSID
@@ -8,7 +8,7 @@ Windows' built-in Small layout appear. The local interactive test confirmed
 TypeDuck still offered and committed 你 after touch-keyboard input `nei`, with
 the original TypeDuck profile active under LANGID 0x0404.
 
-This prototype implements the demonstrated mapping in a separate native ARM64
+This integration implements the demonstrated mapping in a separate native ARM64
 helper and hook DLL. The compiled GitHub Actions artifact was also verified on
 the user's computer: Small was selectable, touch typing `nei` offered 你, and a
 fresh diagnostic editor continued working after English/TypeDuck switching.
@@ -31,7 +31,7 @@ that result is kept separate from the clean-profile acceptance test.
   `1dbd4ea281d73d478aa8d09a8b83fbd265f715f7` (including the ARM64 fixes)
   and built statically from source.
 - No Windows files or security settings are changed. The module remains loaded
-after removal so existing stack frames can return safely.
+  after removal so existing stack frames can return safely.
 - No entered text, candidates or clipboard content is collected. Status contains
   only process ID, error code, activation state and a lookup counter.
 
@@ -67,4 +67,9 @@ Candidate placement uses `IFrameworkInputPane::Location`, verified locally to
 return the Small keyboard's screen rectangle. Candidates avoid that rectangle
 and the input anchor when space permits, and check for keyboard movement every
 250 ms while visible. This does not resize or scroll another application's editor.
-The packaged installer and candidate placement still require end-to-end testing.
+The packaged installer passed native ARM install/update/uninstall validation.
+On 7 November 2026, the installed build was tested on the user's desktop: Small
+was visible, dragging it over the candidate list moved the list clear of the
+keyboard, and clicking the relocated first candidate committed 你. See the
+[build and interactive validation record](../docs/windows-small-keyboard-validation.md)
+for the exact artifact, tested scope and remaining compatibility limits.

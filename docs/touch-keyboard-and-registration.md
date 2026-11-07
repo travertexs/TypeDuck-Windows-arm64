@@ -39,13 +39,29 @@ The Windows **Small**, **Default** and **Split** keyboard modes are controlled b
 Windows; this interface cannot guarantee that Small is offered. Do not label a
 successful build or interface probe as proof that the compact keyboard works.
 
-**Interactive result (5 November 2026): Small is missing on Windows 11 Arm
-build 29698.1000 with the delivered zh-TW installation.** The menu showed only
-Default and Split. A native ARM64 debugger trace verified that the active TSF
-provider was discoverable and returned the preference when explicitly queried,
-but did not receive a touch-layout request during the reproduced interaction.
-See [the local debugging findings](compact-keyboard-local-debug.md). This
-implementation does not fulfill the compact-layout requirement on that system.
+The ARM installer therefore includes **Support the Windows Small touch keyboard**.
+This separate compatibility helper redirects only TypeDuck's keyboard-definition
+lookup inside the current user's Windows input host to Windows' existing Latin
+QWERTY definition. TypeDuck remains the active IME under the selected zh-HK/zh-TW
+registration. The helper starts at sign-in and handles input-host restarts.
+It applies directly without a Windows version/hash allowlist. Runtime instruction
+recognition checks the target before installing the mapping; substantially changed
+Windows code can require an updated recognizer. See [implementation and lifecycle
+details](../KeyboardCompat/README.md).
+
+**Interactive result (7 November 2026): built-in Small works on Windows 11 Arm
+build 29698.1000 with zh-TW registration.** Touch typing offered 你, including
+after English/TypeDuck switching in a clean editor. The packaged build also moved
+the candidate list away when Small was dragged over it; selecting the relocated
+candidate committed 你. The documented layout preference alone had failed on
+this host, as recorded in the [earlier debugging findings](compact-keyboard-local-debug.md).
+The [current validation record](windows-small-keyboard-validation.md) identifies
+the tested installer and distinguishes desktop evidence from CI checks.
+
+Candidate placement queries `IFrameworkInputPane::Location` for the keyboard's
+screen bounds and checks for movement every 250 ms while visible. It avoids the
+keyboard and caret anchor when space permits. This moves TypeDuck's candidate
+and preedit popup; it does not resize or scroll the application's document.
 
 Unicode `VK_PACKET` input is decoded using the documented zero scan code. ASCII
 letter/digit packets retain the corresponding physical-key meaning for the
@@ -71,9 +87,10 @@ Unicode input only to its own foreground window. If the runner cannot activate
 that window, it records `SKIP SendInput` and continues the non-interactive TSF
 checks. A skipped input test is not evidence that touch typing or Small works.
 
-Interactive acceptance still requires opening a text field, selecting TypeDuck,
-opening the Windows touch keyboard and inspecting its layout menu separately
-under zh-HK and zh-TW. Verify Latin keys, tone digits, candidate selection and
+Desktop Small acceptance has been performed for zh-TW on the host above. The
+zh-HK mapping predicate and registration migration are covered by automated tests;
+the full zh-HK desktop sequence has not been repeated on this host. Additional
+Windows builds still need interactive acceptance. Verify Latin keys, tone digits, candidate selection and
 paging, and the Chinese/English toggle. The locked-DLL test checks staging,
 restart status, the saved pending locale and the re-registration callback. It
 uses the same DLL build on each side and invokes the callback after releasing

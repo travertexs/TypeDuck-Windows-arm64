@@ -1,6 +1,9 @@
 # TypeDuck Windows
 
 This fork's Windows 11 on Arm build is on the `windows-arm64` branch.
+The [validated Small-keyboard installer](docs/windows-small-keyboard-validation.md)
+adds Windows' built-in compact layout, candidate placement around the keyboard,
+and an installer choice of zh-HK or zh-TW registration.
 See [Windows on Arm builds and validation](docs/windows-arm64.md) for the
 GitHub Actions installer, supported architectures, and remaining manual checks.
 
