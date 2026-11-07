@@ -8,7 +8,7 @@ endif()
 include(FetchContent)
 FetchContent_Declare(detours
   GIT_REPOSITORY https://github.com/microsoft/Detours.git
-  GIT_TAG e4bfd6b03e50de46b47abfbd1e46b384f0c5f833)
+  GIT_TAG 1dbd4ea281d73d478aa8d09a8b83fbd265f715f7)
 FetchContent_MakeAvailable(detours)
 add_library(detours_arm64 STATIC
   ${detours_SOURCE_DIR}/src/detours.cpp

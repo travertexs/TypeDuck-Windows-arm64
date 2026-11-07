@@ -25,8 +25,9 @@ required before release.
   an error instead of patching an unrelated function.
 - The hook uses the keyboard set's existing COM getter for KLID 0409. The returned
   keyboard reference follows the original function's ownership contract.
-- Microsoft Detours is pinned to v4.0.1 commit
-  `e4bfd6b03e50de46b47abfbd1e46b384f0c5f833` and built statically from source.
+- Microsoft Detours is pinned to commit
+  `1dbd4ea281d73d478aa8d09a8b83fbd265f715f7` (including the ARM64 fixes)
+  and built statically from source.
 - No Windows files or security settings are changed. The module remains loaded
   after removal so existing stack frames can return safely.
 - No entered text, candidates or clipboard content is collected. Status contains
