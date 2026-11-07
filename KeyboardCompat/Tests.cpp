@@ -1,4 +1,5 @@
 #include "Compat.h"
+#include "DynamicLookup.h"
 #include <detours.h>
 #include <iostream>
 #include <cstring>
@@ -10,7 +11,42 @@ static __declspec(noinline) int Redirect(int value) { return original(value) + 7
 static int failures = 0;
 static void Check(bool success, const char* name) { std::cout << (success ? "PASS " : "FAIL ") << name << '\n'; failures += !success; }
 
+static void CheckRuntimeDiscovery() {
+  using namespace typeduck::compat;
+  std::vector<std::uint32_t> image(0x1000 / 4);
+  std::array<std::pair<size_t, size_t>, 1> codeRange{{{0x100, 0x1000}}};
+  auto put = [&](size_t function, size_t getter, size_t field, size_t getSlot, size_t clearSlot) {
+    std::copy(kLookupShape.begin(), kLookupShape.end(), image.begin() + function / 4);
+    std::copy(kGetterShape.begin(), kGetterShape.end(), image.begin() + getter / 4);
+    for (size_t offset : {0x9Cu, 0xACu})
+      image[(function + offset) / 4] = (image[(function + offset) / 4] & 0xFFC003FFu) | static_cast<UINT32>((field / 8) << 10);
+    image[(function + 0xF0) / 4] = 0x94000000u | (static_cast<UINT32>((static_cast<int>(getter) - static_cast<int>(function + 0xF0)) / 4) & 0x03FFFFFFu);
+    image[(getter + 0x28) / 4] = 0xF9400108u | static_cast<UINT32>(getSlot << 10);
+    image[(function + 0x170) / 4] = 0xF9400108u | static_cast<UINT32>(clearSlot << 10);
+  };
+  put(0x100, 0x600, 0x98, 14, 11);
+  auto found = FindLookup(image, codeRange);
+  Check(found && found->rva == 0x100 && found->profileTipOffset == 0x98 && found->getByKlidSlot == 14,
+        "Runtime code discovery without a Windows version or hash");
+  std::fill(image.begin(), image.end(), 0u);
+  put(0x700, 0x100, 0xB0, 16, 13);
+  found = FindLookup(image, codeRange);
+  Check(found && found->rva == 0x700 && found->profileTipOffset == 0xB0 && found->getByKlidSlot == 16 && found->clearOverrideSlot == 13,
+        "Relocated function, backward call, changed profile and COM offsets");
+  image[(0x700 + 0xAC) / 4] += 1u << 10;
+  Check(!FindLookup(image, codeRange), "Inconsistent profile accesses rejected");
+  put(0x700, 0x100, 0xB0, 16, 13);
+  image[(0x100 + 0x28) / 4] = 0;
+  Check(!FindLookup(image, codeRange), "Unrelated call target rejected");
+  put(0x700, 0x100, 0xB0, 16, 13);
+  put(0x300, 0x500, 0x98, 14, 11);
+  Check(!FindLookup(image, codeRange), "Ambiguous matching functions rejected");
+  codeRange[0].second = 0x2000;
+  Check(!FindLookup(image, codeRange), "Out of bounds executable section rejected");
+}
+
 int main() {
+  CheckRuntimeDiscovery();
   using namespace typeduck::compat;
   const std::wstring tw = L"0404:{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}{C6E8F5DF-6504-44F9-B7CF-17A195373A83}";
   Check(IsTypeDuckTip(tw), "Taiwan exact TypeDuck profile");

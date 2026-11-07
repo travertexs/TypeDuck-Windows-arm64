@@ -7,11 +7,6 @@
 #include <vector>
 
 namespace typeduck::compat {
-inline constexpr wchar_t kTextInputHash[] = L"BF16229D64FE9ACF7BD0EF568940777A4622A64B1AA87FE686D08F9B73BBFB43";
-inline constexpr size_t kLookupRva = 0x706C0;
-inline constexpr size_t kProfileTipOffset = 0x98;
-inline constexpr size_t kGetKeyboardByKlidSlot = 0x70 / sizeof(void*);
-inline constexpr std::array<DWORD, 4> kLookupInstructions = {0xA9BA7BFD, 0xA90153F3, 0xA9025BF5, 0xA90363F7};
 inline constexpr wchar_t kHookName[] = L"TypeDuckKeyboardCompatHook.dll";
 
 inline bool IsTypeDuckTip(std::wstring_view tip) {

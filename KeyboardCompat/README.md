@@ -18,8 +18,11 @@ required before release.
 - Only the TypeDuck CLSID/profile pair under 0404 or 0C04 is redirected.
 - The installed IME registration and Windows language selection stay intact.
 - The target must be the current user's Windows TextInputHost in the same session.
-- The exact TextInput.dll SHA-256 and ARM64 entry instructions must match the
-  locally inspected binary. A different Windows build is rejected before loading.
+- There is no Windows version or binary hash restriction. An ARM64 instruction
+  scan finds the keyboard-selection function in the loaded Windows module and
+  decodes its profile field and COM method offsets. Relocation and those offset
+  changes are covered by native tests. Missing or ambiguous code matches report
+  an error instead of patching an unrelated function.
 - The hook uses the keyboard set's existing COM getter for KLID 0409. The returned
   keyboard reference follows the original function's ownership contract.
 - Microsoft Detours is pinned to v4.0.1 commit
@@ -29,9 +32,10 @@ required before release.
 - No entered text, candidates or clipboard content is collected. Status contains
   only process ID, error code, activation state and a lookup counter.
 
-The internal Windows ABI is undocumented. Hash pinning deliberately limits this
-prototype to the inspected binary; it is not a general compatibility promise for
-Windows updates. Windows process protections may reject loading or patching; the
+The internal Windows ABI is undocumented. The runtime scan tolerates address and
+field changes; a compiler rewrite can require an updated instruction recognizer.
+Compatibility across every Windows update has not been established. Windows
+process protections may reject loading or patching; the
 helper reports the error and does not weaken those protections.
 
 ## Build and test

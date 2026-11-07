@@ -74,13 +74,13 @@ static DWORD ControlHost(DWORD pid, ULONG_PTR command, const std::wstring& hookP
   uintptr_t hookBase{};
   bool supported = false;
   for (const auto& module : modules) {
-    if (_wcsicmp(module.szModule, L"TextInput.dll") == 0) supported = Sha256File(module.szExePath) == kTextInputHash;
+    if (_wcsicmp(module.szModule, L"TextInput.dll") == 0) supported = true;
     if (_wcsicmp(module.szModule, kHookName) == 0) {
       if (_wcsicmp(module.szExePath, hookPath.c_str()) != 0) return ERROR_ALREADY_EXISTS;
       hookBase = reinterpret_cast<uintptr_t>(module.modBaseAddr);
     }
   }
-  // No loading, patching, privilege changes, or fallback on an unrecognized build.
+  // The hook resolves compatible code at runtime; no Windows version is checked.
   if (!supported) return ERROR_NOT_SUPPORTED;
   if (!hookBase) {
     if (command != 0) { state = 0; return NO_ERROR; }

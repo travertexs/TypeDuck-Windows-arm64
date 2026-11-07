@@ -1,4 +1,5 @@
 #include "Compat.h"
+#include "DynamicLookup.h"
 #include <detours.h>
 #include <tlhelp32.h>
 #include <winstring.h>
@@ -14,12 +15,13 @@ static std::atomic<bool> enabled{false};
 static bool attached = false;  // Protected by controlLock; detach can fail independently of disable.
 static std::atomic<DWORD> redirected{0};
 static SRWLOCK controlLock = SRWLOCK_INIT;
+static LookupLocation location{};
 
-// This ABI is used only after the complete Windows DLL hash and prologue match.
+// The instruction scan resolves this ABI from the loaded Windows code.
 // The keyboard COM getter returns one owned reference, matching the original lookup.
 static bool MatchesProfile(void* profile) {
   __try {
-    HSTRING tip = *reinterpret_cast<HSTRING*>(static_cast<BYTE*>(profile) + kProfileTipOffset);
+    HSTRING tip = *reinterpret_cast<HSTRING*>(static_cast<BYTE*>(profile) + location.profileTipOffset);
     UINT32 size{};
     const wchar_t* value = WindowsGetStringRawBuffer(tip, &size);
     return value && IsTypeDuckTip({value, size});
@@ -29,13 +31,13 @@ static bool MatchesProfile(void* profile) {
 static void* LookupTypeDuck(void* profile, void* keyboardSet) {
   if (enabled.load(std::memory_order_relaxed) && MatchesProfile(profile)) {
     auto table = *reinterpret_cast<void***>(keyboardSet);
-    auto get = reinterpret_cast<GetByKlid>(table[kGetKeyboardByKlidSlot]);
+    auto get = reinterpret_cast<GetByKlid>(table[location.getByKlidSlot]);
     void* keyboard{};
     if (SUCCEEDED(get(keyboardSet, 0x0409, &keyboard)) && keyboard) {
       // The inspected Windows KLID branch also clears a per-keyboard DLL override.
       auto keyboardTable = *reinterpret_cast<void***>(keyboard);
       using ClearOverride = HRESULT(STDMETHODCALLTYPE*)(void*, HSTRING);
-      const auto clear = reinterpret_cast<ClearOverride>(keyboardTable[0x58 / sizeof(void*)]);
+      const auto clear = reinterpret_cast<ClearOverride>(keyboardTable[location.clearOverrideSlot]);
       if (SUCCEEDED(clear(keyboard, nullptr))) {
         redirected.fetch_add(1, std::memory_order_relaxed);
         return keyboard;
@@ -96,16 +98,16 @@ extern "C" __declspec(dllexport) DWORD WINAPI TypeDuckKeyboardCompatControl(void
       ReleaseSRWLockExclusive(&controlLock);
       return NO_ERROR;
     }
-    wchar_t host[32768]{}, path[32768]{};
+    wchar_t host[32768]{};
     GetModuleFileNameW(nullptr, host, static_cast<DWORD>(std::size(host)));
     HMODULE module = GetModuleHandleW(L"TextInput.dll");
-    if (!IsWindowsInputHostPath(host) || !module ||
-        !GetModuleFileNameW(module, path, static_cast<DWORD>(std::size(path))) || Sha256File(path) != kTextInputHash) {
+    const auto resolved = LocateInModule(module);
+    if (!IsWindowsInputHostPath(host) || !resolved) {
       result = ERROR_NOT_SUPPORTED;
     } else {
-      BYTE* site = reinterpret_cast<BYTE*>(module) + kLookupRva;
-      if (std::memcmp(site, kLookupInstructions.data(), sizeof(kLookupInstructions)) != 0) result = ERROR_REVISION_MISMATCH;
-      else {
+      location = *resolved;
+      BYTE* site = reinterpret_cast<BYTE*>(module) + location.rva;
+      {
         originalLookup = reinterpret_cast<Lookup>(site);
         result = ChangeDetour(true);
         if (!result) { attached = true; enabled.store(true); }
