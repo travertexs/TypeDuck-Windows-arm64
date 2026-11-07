@@ -112,6 +112,11 @@ static DWORD ControlHost(DWORD pid, ULONG_PTR command, const std::wstring& hookP
   if (result) return result;
   if (command == 2) state = returned;
   else if (returned) return returned;
+  else if (command == 0) {
+    result = RemoteCall(process.value, hookBase + offset, reinterpret_cast<void*>(2), state);
+    if (result) return result;
+    if (!(state & 1)) return ERROR_DLL_INIT_FAILED;
+  }
   return NO_ERROR;
 }
 

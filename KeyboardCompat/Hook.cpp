@@ -31,8 +31,15 @@ static void* LookupTypeDuck(void* profile, void* keyboardSet) {
     auto get = reinterpret_cast<GetByKlid>(table[kGetKeyboardByKlidSlot]);
     void* keyboard{};
     if (SUCCEEDED(get(keyboardSet, 0x0409, &keyboard)) && keyboard) {
-      redirected.fetch_add(1, std::memory_order_relaxed);
-      return keyboard;
+      // The inspected Windows KLID branch also clears a per-keyboard DLL override.
+      auto keyboardTable = *reinterpret_cast<void***>(keyboard);
+      using ClearOverride = HRESULT(STDMETHODCALLTYPE*)(void*, HSTRING);
+      const auto clear = reinterpret_cast<ClearOverride>(keyboardTable[0x58 / sizeof(void*)]);
+      if (SUCCEEDED(clear(keyboard, nullptr))) {
+        redirected.fetch_add(1, std::memory_order_relaxed);
+        return keyboard;
+      }
+      reinterpret_cast<IUnknown*>(keyboard)->Release();
     }
   }
   return originalLookup(profile, keyboardSet);
