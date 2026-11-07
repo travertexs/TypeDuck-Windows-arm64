@@ -4,6 +4,8 @@ on:
   push:
     branches: [windows-arm64]
     paths-ignore:
+      - KeyboardCompat/**
+      - .github/workflows/keyboard-compat.yml
       - scripts/Test-TypeDuckArmInstall.ps1
       - scripts/Test-TypeDuckInstallerUi.ps1
       - .github/workflows/validate-arm64.yml

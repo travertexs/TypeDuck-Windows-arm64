@@ -1,5 +1,10 @@
 name: Build compact keyboard compatibility prototype
 on:
+  push:
+    branches: [windows-arm64]
+    paths:
+      - KeyboardCompat/**
+      - .github/workflows/keyboard-compat.yml
   workflow_dispatch:
 permissions:
   contents: read

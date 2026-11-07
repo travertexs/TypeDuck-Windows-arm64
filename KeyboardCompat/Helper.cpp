@@ -91,7 +91,8 @@ static DWORD ControlHost(DWORD pid, ULONG_PTR command, const std::wstring& hookP
     if (!remotePath) return GetLastError();
     SIZE_T written{};
     DWORD result = NO_ERROR, loaded{};
-    if (!WriteProcessMemory(process.value, remotePath, hookPath.c_str(), bytes, &written) || written != bytes) result = GetLastError();
+    if (!WriteProcessMemory(process.value, remotePath, hookPath.c_str(), bytes, &written)) result = GetLastError();
+    else if (written != bytes) result = ERROR_PARTIAL_COPY;
     else result = RemoteCall(process.value, loader, remotePath, loaded);
     // A timed-out loader might still read its argument; retain that allocation until host exit.
     if (result != ERROR_TIMEOUT) VirtualFreeEx(process.value, remotePath, 0, MEM_RELEASE);
