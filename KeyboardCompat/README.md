@@ -9,9 +9,11 @@ TypeDuck still offered and committed 你 after touch-keyboard input `nei`, with
 the original TypeDuck profile active under LANGID 0x0404.
 
 This prototype implements the demonstrated mapping in a separate native ARM64
-helper and hook DLL. It is not yet part of the installer. End-to-end validation
-of this compiled helper, startup integration and keyboard occlusion remains
-required before release.
+helper and hook DLL. The compiled GitHub Actions artifact was also verified on
+the user's computer: Small was selectable, touch typing `nei` offered 你, and a
+fresh diagnostic editor continued working after English/TypeDuck switching.
+An older editor used for experimental process-local registration lost typing;
+that result is kept separate from the clean-profile acceptance test.
 
 ## Scope
 
@@ -29,7 +31,7 @@ required before release.
   `1dbd4ea281d73d478aa8d09a8b83fbd265f715f7` (including the ARM64 fixes)
   and built statically from source.
 - No Windows files or security settings are changed. The module remains loaded
-  after removal so existing stack frames can return safely.
+after removal so existing stack frames can return safely.
 - No entered text, candidates or clipboard content is collected. Status contains
   only process ID, error code, activation state and a lookup counter.
 
@@ -47,6 +49,22 @@ Detours attach/detach tests on windows-11-arm. CI cannot establish the visible
 Small layout result on a user's desktop.
 
 After obtaining a verified workflow artifact, the developer diagnostic commands
-are `TypeDuckKeyboardCompat.exe --apply`, `--status`, and `--stop`. Removal restores
+are `TypeDuckKeyboardCompat.exe --apply`, `--status`, `--watch`, and `--stop`. Removal restores
 the original code through a Detours transaction. A keyboard definition already
 cached by Windows can remain until Windows next resolves that profile.
+
+## Installation and lifecycle
+
+The ARM installer includes a bilingual Small-keyboard task. It preserves task
+selection on updates and registers `--watch` in the installing user's Run key.
+The watcher handles a newly started Windows input host and exits on `--stop`.
+Updates and uninstall stop the watcher and detach the mapping. Updates request
+a restart because Windows can retain the detached DLL until its input host exits.
+Inno Setup replaces/deletes locked helper files at restart. Windows files are
+never replaced. Deselecting the task during an update removes startup activation.
+
+Candidate placement uses `IFrameworkInputPane::Location`, verified locally to
+return the Small keyboard's screen rectangle. Candidates avoid that rectangle
+and the input anchor when space permits, and check for keyboard movement every
+250 ms while visible. This does not resize or scroll another application's editor.
+The packaged installer and candidate placement still require end-to-end testing.

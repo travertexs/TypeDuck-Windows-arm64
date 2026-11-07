@@ -57,6 +57,7 @@ target_link_libraries(MoqiTextService
     ${MOQI_PROTOBUF_TARGET}
     jsoncpp_lib_static
     oleaut32
+    uuid
 )
 
 include("${CMAKE_SOURCE_DIR}/cmake/arm64x.cmake")

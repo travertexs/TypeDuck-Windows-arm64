@@ -62,7 +62,21 @@ try {
     $pass = $case.Name
     $log = Join-Path $PWD "arm-validation/$pass.log"
     $setupExitCode = Invoke-SetupProcess -FilePath $installer -Log $log -Locale $case.Choice
-    if ($setupExitCode -ne 0) { throw "$pass returned $setupExitCode; reboot path needs separate validation" }
+    if ($setupExitCode -ne 0 -and -not ($pass -ne 'install' -and $setupExitCode -eq 3010)) {
+      throw "$pass returned unexpected exit code $setupExitCode"
+    }
+    if ($setupExitCode -eq 3010) {
+      Write-Host 'PASS compatibility-helper update requests restart; immediate locale registration is checked below.'
+    }
+    $compatDir = Join-Path $installDir 'KeyboardCompat'
+    foreach ($file in 'TypeDuckKeyboardCompat.exe','TypeDuckKeyboardCompatHook.dll','Detours-LICENSE.md') {
+      if (-not (Test-Path -LiteralPath (Join-Path $compatDir $file))) { throw "Missing compact keyboard component: $file" }
+    }
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    $startup = (Get-ItemProperty -LiteralPath $runKey -Name TypeDuckKeyboardCompat).TypeDuckKeyboardCompat
+    if ($startup -ne ('"' + (Join-Path $compatDir 'TypeDuckKeyboardCompat.exe') + '" --watch')) {
+      throw 'Compact keyboard startup command does not match the installed helper'
+    }
     foreach ($view in @([Microsoft.Win32.RegistryView]::Registry32, [Microsoft.Win32.RegistryView]::Registry64)) {
       $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
       try {
@@ -163,6 +177,10 @@ try {
   if (Test-Path -LiteralPath $key) { throw '64-bit COM registration remained after uninstall' }
   $key32 = 'Registry::HKEY_LOCAL_MACHINE/SOFTWARE/Classes/WOW6432Node/CLSID/{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}/InprocServer32'
   if (Test-Path -LiteralPath $key32) { throw '32-bit COM registration remained after uninstall' }
+  if ((Get-ItemProperty -LiteralPath $runKey -ErrorAction SilentlyContinue).TypeDuckKeyboardCompat) {
+    throw 'Compact keyboard startup remained after uninstall'
+  }
+  if (Get-Process TypeDuckKeyboardCompat -ErrorAction SilentlyContinue) { throw 'Compact keyboard watcher remained after uninstall' }
 
   $freshTw = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/fresh-tw.log" -Locale 'zh-TW'
   if ($freshTw -ne 0) { throw "Fresh Taiwan installation returned $freshTw" }
