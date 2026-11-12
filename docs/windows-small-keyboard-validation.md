@@ -1,5 +1,30 @@
 # Windows Small keyboard: validated ARM installer
 
+## 12 November 2026 installer with launcher recovery
+
+Use the [combined TypeDuck installer](https://github.com/travertexs/TypeDuck-Windows-arm64/actions/runs/43244236580/artifacts/13957340977)
+from the [successful ARM build](https://github.com/travertexs/TypeDuck-Windows-arm64/actions/runs/43244236580).
+The installer SHA-256 is `54c33d2a34a9fea90bfac0a7a3c0a2cb17c540dcb72155c3562c45d00b2e8c09`.
+The launcher and its native ARM64 helper share one installation root. The launcher
+starts the enabled helper from its `KeyboardCompat` subfolder and checks for it
+when an IME client connects.
+
+At the affected sign-in, the launcher was running and the helper was absent.
+The loaded Windows keyboard DLL matched the previous working build byte for byte.
+Starting the installed helper restored the Small layout and touch typing of 你.
+The Windows startup log recorded the launcher and gave no reason for the missing
+helper. The new installer removes that separate helper startup entry.
+
+The ARM install test verified recovery through a new IME connection after stopping
+the watcher. It also exercised deselection and re-enabling during updates. On the
+affected computer, running the installed launcher's normal sign-in command started
+the packaged helper as its child, and the helper activated in the Windows input host.
+After that watcher was stopped, a new connection to the installed launcher's IME
+pipe started a different watcher under the same launcher process. Its mapping
+was active again in the existing Windows input host.
+
+## 7 November 2026 initial integration
+
 Validated on 7 November 2026. The GitHub Actions installer enables Windows'
 built-in Small touch keyboard for TypeDuck on the tested Windows ARM64 host,
 retains the selected Windows language, and moves TypeDuck's candidate popup away
