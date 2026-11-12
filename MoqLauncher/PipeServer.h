@@ -101,6 +101,7 @@ private:
 	void openTypeDuckAbout() const;
 	void runStartupSettingsApply();
 	void launchTypeDuckSettingsApply() const;
+	void ensureSmallKeyboardWatcher();
 	void showTrayNotification(const std::wstring& title, const std::wstring& message,
 	                         DWORD infoFlags);
 	void flushTrayNotifications();
@@ -140,6 +141,8 @@ private:
 	std::wstring topDirPath_;
 	bool quitExistingLauncher_;
 	bool applySettingsOnStartup_;
+	bool deferSmallKeyboard_ = false;
+	ULONGLONG nextWatcherCheck_ = 0;
 	static PipeServer* singleton_;
 	static wchar_t singleInstanceMutexName_[];
 	std::vector<PipeClient*> clients_;

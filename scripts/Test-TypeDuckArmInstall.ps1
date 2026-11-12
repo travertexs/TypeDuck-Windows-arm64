@@ -5,11 +5,12 @@ if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm
   throw 'This test requires Windows on ARM64'
 }
 New-Item arm-validation -ItemType Directory -Force | Out-Null
-function Invoke-SetupProcess([string]$FilePath, [string]$Log, [string]$Locale = '') {
+function Invoke-SetupProcess([string]$FilePath, [string]$Log, [string]$Locale = '', [string]$TaskChange = '') {
   Write-Host "Running setup: $FilePath; log: $Log"
   # Start-Process -Wait waits for descendants, including the persistent launcher.
   $setupArguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/RESTARTEXITCODE=3010',"/LOG=`"$Log`"")
   if ($Locale) { $setupArguments += "/IMELOCALE=$Locale" }
+  if ($TaskChange) { $setupArguments += "/MERGETASKS=$TaskChange" }
   $process = Start-Process -FilePath $FilePath -ArgumentList $setupArguments -PassThru -WindowStyle Hidden
   if (-not $process.WaitForExit(180000)) {
     if (Test-Path -LiteralPath $Log) { Get-Content -LiteralPath $Log -Tail 100 | Write-Host }
@@ -61,7 +62,12 @@ try {
   foreach ($case in $passes) {
     $pass = $case.Name
     $log = Join-Path $PWD "arm-validation/$pass.log"
-    $setupExitCode = Invoke-SetupProcess -FilePath $installer -Log $log -Locale $case.Choice
+    $taskChange = switch ($pass) {
+      'upgrade-hk' { '!compactkeyboard' }
+      'migrate-tw' { 'compactkeyboard' }
+      default { '' }
+    }
+    $setupExitCode = Invoke-SetupProcess -FilePath $installer -Log $log -Locale $case.Choice -TaskChange $taskChange
     if ($setupExitCode -ne 0 -and -not ($pass -ne 'install' -and $setupExitCode -eq 3010)) {
       throw "$pass returned unexpected exit code $setupExitCode"
     }
@@ -73,9 +79,37 @@ try {
       if (-not (Test-Path -LiteralPath (Join-Path $compatDir $file))) { throw "Missing compact keyboard component: $file" }
     }
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-    $startup = (Get-ItemProperty -LiteralPath $runKey -Name TypeDuckKeyboardCompat).TypeDuckKeyboardCompat
-    if ($startup -ne ('"' + (Join-Path $compatDir 'TypeDuckKeyboardCompat.exe') + '" --watch')) {
-      throw 'Compact keyboard startup command does not match the installed helper'
+    if ((Get-ItemProperty -LiteralPath $runKey).TypeDuckKeyboardCompat) {
+      throw 'Legacy independent helper Run entry remained'
+    }
+    $enabled = (Get-ItemProperty -LiteralPath 'HKCU:\Software\TypeDuckIME' -ErrorAction SilentlyContinue).SmallKeyboardEnabled
+    if (($enabled -eq 1) -ne ($pass -ne 'upgrade-hk')) { throw "Wrong Small keyboard preference after $pass" }
+    if ($pass -eq 'install') {
+      $helperPath = Join-Path $compatDir 'TypeDuckKeyboardCompat.exe'
+      $waitForWatcher = {
+        for ($i = 0; $i -lt 40; $i++) {
+          $running = @(Get-Process -Name TypeDuckKeyboardCompat -ErrorAction SilentlyContinue | Where-Object Path -eq $helperPath)
+          if ($running.Count -eq 1) { return $running[0] }
+          Start-Sleep -Milliseconds 250
+        }
+        throw 'Launcher did not start exactly one installed watcher'
+      }
+      $first = & $waitForWatcher
+      $stop = Start-Process $helperPath -ArgumentList '--stop' -WindowStyle Hidden -PassThru
+      if (-not $stop.WaitForExit(45000) -or $stop.ExitCode -ne 0 -or -not $first.WaitForExit(5000)) {
+        throw 'Could not reproduce a missing watcher'
+      }
+      Start-Sleep -Seconds 3
+      $pipe = [IO.Pipes.NamedPipeClientStream]::new('.', "$env:USERNAME\TypeDuckIME\Launcher", [IO.Pipes.PipeDirection]::InOut)
+      try { $pipe.Connect(5000) } finally { $pipe.Dispose() }
+      $replacement = & $waitForWatcher
+      if ($replacement.Id -eq $first.Id) { throw 'Watcher recovery did not create a new instance' }
+      Write-Host 'PASS launcher startup and recovery on a new IME pipe connection'
+      # Seed the previous installer's Run entry and verify migration on upgrade.
+      New-ItemProperty -LiteralPath $runKey -Name TypeDuckKeyboardCompat -PropertyType String -Value ('"' + $helperPath + '" --watch') -Force | Out-Null
+    }
+    if ($pass -eq 'upgrade-hk' -and (Get-Process -Name TypeDuckKeyboardCompat -ErrorAction SilentlyContinue)) {
+      throw 'Deselecting the task left a watcher running'
     }
     foreach ($view in @([Microsoft.Win32.RegistryView]::Registry32, [Microsoft.Win32.RegistryView]::Registry64)) {
       $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
@@ -181,6 +215,7 @@ try {
     throw 'Compact keyboard startup remained after uninstall'
   }
   if (Get-Process TypeDuckKeyboardCompat -ErrorAction SilentlyContinue) { throw 'Compact keyboard watcher remained after uninstall' }
+  if ((Get-ItemProperty -LiteralPath 'HKCU:\Software\TypeDuckIME' -ErrorAction SilentlyContinue).SmallKeyboardEnabled) { throw 'Small keyboard preference survived uninstall' }
 
   $freshTw = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/fresh-tw.log" -Locale 'zh-TW'
   if ($freshTw -ne 0) { throw "Fresh Taiwan installation returned $freshTw" }

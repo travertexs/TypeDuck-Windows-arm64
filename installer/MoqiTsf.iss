@@ -132,17 +132,14 @@ Name: "{autoprograms}\TypeDuckIME\關於 About TypeDuck…"; Filename: "{app}\Ty
 Name: "{autoprograms}\TypeDuckIME\解除安裝 Uninstall"; Filename: "{uninstallexe}"
 
 [Run]
-#if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\KeyboardCompat\TypeDuckKeyboardCompat.exe")
-Filename: "{app}\KeyboardCompat\TypeDuckKeyboardCompat.exe"; Parameters: "--watch"; Flags: nowait runhidden runasoriginaluser; Tasks: compactkeyboard; Check: CanStartKeyboardCompat
-#endif
-Filename: "{app}\TypeDuckLauncher.exe"; Parameters: "/apply-settings"; Flags: nowait runasoriginaluser
+Filename: "{app}\TypeDuckLauncher.exe"; Parameters: "{code:LauncherSetupParameters}"; Flags: nowait runasoriginaluser
 Filename: "{app}\TypeDuckSettings.exe"; Description: "開啟 TypeDuck 設定 / Open TypeDuck Settings"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ShouldLaunchSettings
 Filename: "{app}\TypeDuckAbout.exe"; Description: "開啟 TypeDuck 關於 / Open TypeDuck About"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ShouldLaunchAbout
 
 [Registry]
 #if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\KeyboardCompat\TypeDuckKeyboardCompat.exe")
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "TypeDuckKeyboardCompat"; ValueData: """{app}\KeyboardCompat\TypeDuckKeyboardCompat.exe"" --watch"; Flags: uninsdeletevalue; Tasks: compactkeyboard; Check: IsArm64
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "TypeDuckKeyboardCompat"; Flags: deletevalue; Check: KeyboardCompatDeselected
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "TypeDuckKeyboardCompat"; Flags: deletevalue; Check: IsArm64
+Root: HKCU; Subkey: "Software\TypeDuckIME"; ValueType: dword; ValueName: "SmallKeyboardEnabled"; ValueData: "1"; Flags: uninsdeletevalue; Tasks: compactkeyboard; Check: IsArm64
 #endif
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   ValueType: string; ValueName: "TypeDuckLauncher"; \
@@ -232,16 +229,12 @@ begin
   else Result := 'zh-HK';
 end;
 
-function CanStartKeyboardCompat: Boolean;
+function LauncherSetupParameters(Param: String): String;
 begin
-  { A hook already loaded into Windows is left resident after detach. On an
-    update, restart activates the new DLL after Inno replaces the locked file. }
-  Result := IsArm64 and HelperInstallSucceeded and not HadKeyboardCompat;
-end;
-
-function KeyboardCompatDeselected: Boolean;
-begin
-  Result := not WizardIsTaskSelected('compactkeyboard');
+  Result := '/apply-settings';
+  { A detached DLL may remain in the current input host through an update. }
+  if HadKeyboardCompat or not HelperInstallSucceeded then
+    Result := Result + ' /defer-small-keyboard';
 end;
 
 procedure StopKeyboardCompat;
@@ -253,6 +246,9 @@ begin
   if IsArm64 and FileExists(Helper) then
   begin
     HadKeyboardCompat := True;
+    { Inhibit launcher recovery during update/removal. Setup writes the selected
+      task back after the files have been installed. }
+    RegDeleteValue(HKCU, 'Software\TypeDuckIME', 'SmallKeyboardEnabled');
     if not Exec(Helper, '--stop', '', SW_HIDE, ewWaitUntilTerminated, Code) then
       RaiseException(Bilingual('未能停止小型鍵盤支援。請重新啟動電腦後再試。',
         'Could not stop Small keyboard support. Restart the computer and try again.'));

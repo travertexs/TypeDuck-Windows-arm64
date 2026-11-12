@@ -56,12 +56,17 @@ cached by Windows can remain until Windows next resolves that profile.
 ## Installation and lifecycle
 
 The ARM installer includes a bilingual Small-keyboard task. It preserves task
-selection on updates and registers `--watch` in the installing user's Run key.
+selection on updates and installs the native helper in `KeyboardCompat` under
+the same installation root as `TypeDuckLauncher.exe`. The launcher reads the
+installing user's `SmallKeyboardEnabled` preference and starts the helper at
+startup. It also checks for a missing watcher when an IME client connects. This
+allows the helper to recover if the launcher starts on demand after sign-in.
+Updates remove the previous independent helper Run entry.
 The watcher handles a newly started Windows input host and exits on `--stop`.
 Updates and uninstall stop the watcher and detach the mapping. Updates request
 a restart because Windows can retain the detached DLL until its input host exits.
 Inno Setup replaces/deletes locked helper files at restart. Windows files are
-never replaced. Deselecting the task during an update removes startup activation.
+never replaced. Deselecting the task during an update clears the preference.
 
 Candidate placement uses `IFrameworkInputPane::Location`, verified locally to
 return the Small keyboard's screen rectangle. Candidates avoid that rectangle

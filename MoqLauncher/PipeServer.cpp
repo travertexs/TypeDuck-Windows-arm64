@@ -494,6 +494,8 @@ void PipeServer::parseCommandLine(LPSTR cmd) {
       quitExistingLauncher_ = true;
     else if (wcscmp(arg, L"/apply-settings") == 0)
       applySettingsOnStartup_ = true;
+    else if (wcscmp(arg, L"/defer-small-keyboard") == 0)
+      deferSmallKeyboard_ = true;
   }
   LocalFree(argv);
 }
@@ -556,11 +558,49 @@ void PipeServer::clearTrayNotification() {
 }
 
 void PipeServer::onNewClientConnected(uv_stream_t *server, int status) {
+  if (status < 0)
+    return;
+  ensureSmallKeyboardWatcher();
   auto server_pipe = reinterpret_cast<uv_pipe_t *>(server);
   auto client = new PipeClient{this, server_pipe->pipe_mode,
                                server_pipe->security_attributes};
   acceptClient(client);
   client->startRead();
+}
+
+void PipeServer::ensureSmallKeyboardWatcher() {
+  // Called on the launcher event loop at startup and when an IME client connects.
+  // Keep registry and process work out of host applications and off the key path.
+  const ULONGLONG now = GetTickCount64();
+  if (deferSmallKeyboard_ || now < nextWatcherCheck_)
+    return;
+  nextWatcherCheck_ = now + 2000;
+
+  DWORD enabled = 0;
+  DWORD size = sizeof(enabled);
+  if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\TypeDuckIME", L"SmallKeyboardEnabled",
+                   RRF_RT_REG_DWORD, nullptr, &enabled, &size) != ERROR_SUCCESS || enabled != 1)
+    return;
+  HANDLE watcher = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\TypeDuckKeyboardCompat.Watcher");
+  if (watcher) {
+    CloseHandle(watcher);
+    return;
+  }
+  if (GetLastError() != ERROR_FILE_NOT_FOUND)
+    return;
+
+  const std::wstring helper = topDirPath_ + L"\\KeyboardCompat\\TypeDuckKeyboardCompat.exe";
+  std::wstring command = L"\"" + helper + L"\" --watch";
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(helper.c_str(), &command[0], nullptr, nullptr, FALSE,
+                      CREATE_NO_WINDOW, nullptr, topDirPath_.c_str(), &startup, &process)) {
+    logger_->warn("Could not start the Small keyboard helper (Windows error {})", GetLastError());
+    return;
+  }
+  CloseHandle(process.hThread);
+  CloseHandle(process.hProcess);
 }
 
 bool PipeServer::initSingleInstance() {
@@ -594,6 +634,7 @@ int PipeServer::exec(LPSTR cmd) {
   topDirPath_ = getCurrentExecutableDir();
   // must set CWD to our dir. otherwise the backends won't launch.
   ::SetCurrentDirectoryW(topDirPath_.c_str());
+  ensureSmallKeyboardWatcher();
 
   // this is the first instance
   initBackendServers(topDirPath_);
