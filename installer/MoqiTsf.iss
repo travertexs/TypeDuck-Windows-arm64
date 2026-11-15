@@ -132,7 +132,7 @@ Name: "{autoprograms}\TypeDuckIME\關於 About TypeDuck…"; Filename: "{app}\Ty
 Name: "{autoprograms}\TypeDuckIME\解除安裝 Uninstall"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\TypeDuckLauncher.exe"; Parameters: "{code:LauncherSetupParameters}"; Flags: nowait runasoriginaluser
+Filename: "{app}\TypeDuckLauncher.exe"; Parameters: "{code:LauncherSetupParameters}"; Flags: nowait runasoriginaluser; BeforeInstall: InstallSetupHelperOnce
 Filename: "{app}\TypeDuckSettings.exe"; Description: "開啟 TypeDuck 設定 / Open TypeDuck Settings"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ShouldLaunchSettings
 Filename: "{app}\TypeDuckAbout.exe"; Description: "開啟 TypeDuck 關於 / Open TypeDuck About"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ShouldLaunchAbout
 
@@ -519,13 +519,10 @@ begin
 
 end;
 
-function NeedRestart(): Boolean;
+procedure InstallSetupHelperOnce;
 var
   ResultCode: Integer;
 begin
-  Result := HelperInstallNeedsRestart or HadKeyboardCompat;
-  { Inno calls NeedRestart after files/registry are installed, before saving
-    uninstall information. ssPostInstall is too late to request a restart. }
   if not HelperInstallAttempted then
   begin
     HelperInstallAttempted := True;
@@ -552,6 +549,14 @@ begin
       Exit;
     end;
   end;
+end;
+
+function NeedRestart(): Boolean;
+begin
+  { Inno can skip NeedRestart when a locked file already requires restart.
+    The launcher's BeforeInstall callback covers that path, before evaluating
+    launch parameters. The shared guard keeps registration exactly once. }
+  InstallSetupHelperOnce;
   Result := HelperInstallNeedsRestart or HadKeyboardCompat;
 end;
 

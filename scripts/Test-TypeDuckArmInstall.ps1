@@ -97,6 +97,9 @@ try {
     if ($setupExitCode -eq 3010) {
       Write-Host 'PASS compatibility-helper update requests restart; immediate locale registration is checked below.'
     }
+    if (@(Select-String -LiteralPath $log -Pattern 'TypeDuck setup helper returned').Count -ne 1) {
+      throw "Registration helper must run exactly once during $pass"
+    }
     $compatDir = Join-Path $installDir 'KeyboardCompat'
     foreach ($file in 'TypeDuckKeyboardCompat.exe','TypeDuckKeyboardCompatHook.dll','Detours-LICENSE.md') {
       if (-not (Test-Path -LiteralPath (Join-Path $compatDir $file))) { throw "Missing compact keyboard component: $file" }
@@ -237,8 +240,15 @@ try {
   # claiming that a hosted runner was rebooted. Both DLL copies are this build.
   $lockedDll = [IO.File]::Open("$env:WINDIR/System32/TypeDuckTextService.dll", [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
   $lockedDll32 = [IO.File]::Open("$env:WINDIR/SysWOW64/TypeDuckTextService.dll", [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  # Inno itself must detect a locked payload, causing it to skip NeedRestart.
+  # Locking only system TSF DLLs misses this path: those are copied by our helper.
+  $lockedCompat = [IO.File]::Open("$installDir/KeyboardCompat/TypeDuckKeyboardCompatHook.dll", [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
   try {
     $deferredExit = Invoke-SetupProcess -FilePath $installer -Log "$PWD/arm-validation/deferred-tw.log" -Locale 'zh-TW'
+    $deferredLog = Get-Content "$PWD/arm-validation/deferred-tw.log" -Raw
+    if ($deferredLog -notmatch 'Not calling NeedRestart') { throw 'Locked compatibility payload did not exercise the skipped NeedRestart callback' }
+    if ([regex]::Matches($deferredLog, 'TypeDuck setup helper returned').Count -ne 1) { throw 'Skipped NeedRestart prevented or duplicated registration' }
+    Write-Host 'PASS locked compatibility payload still runs registration exactly once before launcher startup'
     $saved = Get-ItemProperty 'HKLM:\Software\TypeDuckIME'
     $saved | Format-List | Out-File "$PWD/arm-validation/deferred-registry.txt"
     if ($deferredExit -ne 3010) {
@@ -249,7 +259,7 @@ try {
     $task = Get-ScheduledTask -TaskName 'TypeDuckIME-ReRegisterTSF'
     if ($task.Actions.Arguments -notmatch '--locale zh-TW') { throw 'Restart task lost the selected language' }
     $task | Export-Clixml "$PWD/arm-validation/deferred-task.xml"
-  } finally { $lockedDll.Dispose(); $lockedDll32.Dispose() }
+  } finally { $lockedCompat.Dispose(); $lockedDll.Dispose(); $lockedDll32.Dispose() }
   $reregister = Start-Process "$installDir/TypeDuckSetupHelper.exe" -ArgumentList @('/r','/s','--appdir',"`"$installDir`"") -PassThru -WindowStyle Hidden
   if (-not $reregister.WaitForExit(60000) -or $reregister.ExitCode -ne 0) { throw 'Deferred registration callback failed' }
   & reg.exe query 'HKLM\SOFTWARE\Microsoft\CTF\TIP\{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}\LanguageProfile' /s /reg:64 | Out-File "$PWD/arm-validation/deferred-final-profiles.txt"

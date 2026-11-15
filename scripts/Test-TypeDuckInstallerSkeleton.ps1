@@ -214,10 +214,16 @@ function Assert-InstallerScript {
     Assert-NotMatch $Failures $Iss "Type:\s*filesandordirs;\s*Name:\s*`"\{userappdata\}\\TypeDuckIME`"" `
         "Roaming user data must be deleted by opt-in code, not by a user-context-sensitive [UninstallDelete] entry."
     Assert-AllMatch $Failures $Iss @(
-        'TypeDuckLauncher\.exe";\s*Parameters:\s*"/apply-settings";\s*Flags:\s*nowait runasoriginaluser',
+        'TypeDuckLauncher\.exe";\s*Parameters:\s*"\{code:LauncherSetupParameters\}";\s*Flags:\s*nowait runasoriginaluser',
+        "(?s)function LauncherSetupParameters\(Param: String\): String;.*?Result := '/apply-settings';",
         'TypeDuckSettings\.exe";\s*Description:.*Flags:\s*postinstall nowait skipifsilent runasoriginaluser',
         'TypeDuckAbout\.exe";\s*Description:.*Flags:\s*postinstall nowait skipifsilent runasoriginaluser'
     ) "Installer user-facing and settings-apply launcher process must run as the original user so APPDATA and launcher state are created for the right account."
+    Assert-AllMatch $Failures $Iss @(
+        'TypeDuckLauncher\.exe";[^\r\n]*BeforeInstall:\s*InstallSetupHelperOnce',
+        '(?s)procedure InstallSetupHelperOnce;.*?if not HelperInstallAttempted then',
+        '(?s)function NeedRestart\(\): Boolean;.*?InstallSetupHelperOnce;'
+    ) 'Registration must run exactly once even when Inno skips NeedRestart for an already-locked payload.'
     Assert-AllMatch $Failures $Iss @(
         "procedure MigrateLegacyTypeDuckUserMemory",
         "ExpandConstant\('\{userappdata\}\\TypeDuck\\jyut6ping3\.userdb'\)",
@@ -233,8 +239,13 @@ function Assert-InstallerScript {
     ) "Legacy TypeDuck user memory migration must be best-effort and must not block installation on copy failure."
     Assert-NotMatch $Failures $Iss "UserMemoryMigrationFailureText|RaiseException\(UserMemoryMigrationFailureText\)" `
         "Legacy TypeDuck user memory migration must not surface a blocking install failure."
-    if ($Iss -notmatch "if CurStep = ssInstall then\s*begin\s*MigrateLegacyTypeDuckUserMemory;\s*HadExistingInstall := ExistingImeInstallationPresent;") {
-        Add-Failure $Failures "Legacy TypeDuck user memory migration must run during ssInstall before process cleanup, setup helper work, and installer [Run] entries."
+    $installBody = [regex]::Match($Iss, '(?s)if CurStep = ssInstall then\s*begin(.*?)\bend;').Groups[1].Value
+    if ($installBody -notmatch '(?s)StopTypeDuckProcesses;\s*StopKeyboardCompat;\s*MigrateLegacyTypeDuckUserMemory;\s*HadExistingInstall := ExistingImeInstallationPresent;') {
+        Add-Failure $Failures 'Installation must stop launcher recovery before the watcher, then migrate legacy user memory before helper registration and post-install launches.'
+    }
+    $uninstallBody = [regex]::Match($Iss, '(?s)if CurUninstallStep = usUninstall then\s*begin(.*?)\bend;').Groups[1].Value
+    if ($uninstallBody -notmatch 'StopTypeDuckProcesses;\s*StopKeyboardCompat;') {
+        Add-Failure $Failures 'Uninstall must stop launcher recovery before stopping the watcher.'
     }
     if ($Iss -match "if CurStep = ssPostInstall then\s*begin\s*MigrateLegacyTypeDuckUserMemory;") {
         Add-Failure $Failures "Legacy TypeDuck user memory migration must not run from ssPostInstall because normal [Run] entries are processed before that phase."
@@ -267,8 +278,11 @@ function Assert-InstallerScript {
         "If you are unable to type, restart your computer",
         "If TypeDuck still appears, restart your computer"
     ) "Restart guidance must be rendered on final installer/uninstaller surfaces with reopen-apps-first wording."
-    Assert-NotMatch $Failures $Iss "SuppressibleMsgBox\(" `
-        "Restart guidance must not use a separate popup."
+    foreach ($popup in [regex]::Matches($Iss, '(?s)SuppressibleMsgBox\(.*?\),\s*(mb\w+),')) {
+        if ($popup.Groups[1].Value -ne 'mbError') {
+            Add-Failure $Failures 'Routine restart guidance belongs on final surfaces; only installation errors may use a popup.'
+        }
+    }
 
     $finalGuidanceMatches = [regex]::Matches($Iss, "(?s)function (InstallFinishedText|UninstallFinishedText): String;.*?end;")
     foreach ($match in $finalGuidanceMatches) {
