@@ -588,9 +588,14 @@ void PipeServer::ensureSmallKeyboardWatcher() {
       L"{9B52CF20-1C5D-4C74-9F5D-9E66377C8F37}_is1";
   wchar_t selectedTasks[1024]{};
   DWORD size = sizeof(selectedTasks);
-  if (RegGetValueW(HKEY_LOCAL_MACHINE, installKey, L"Inno Setup: Selected Tasks",
-                   RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
-                   nullptr, selectedTasks, &size) != ERROR_SUCCESS)
+  HKEY installation = nullptr;
+  if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, installKey, 0,
+                    KEY_QUERY_VALUE | KEY_WOW64_64KEY, &installation) != ERROR_SUCCESS)
+    return;
+  const LSTATUS readResult = RegGetValueW(installation, nullptr, L"Inno Setup: Selected Tasks",
+                                         RRF_RT_REG_SZ, nullptr, selectedTasks, &size);
+  RegCloseKey(installation);
+  if (readResult != ERROR_SUCCESS)
     return;
   const std::wstring tasks = L"," + std::wstring(selectedTasks) + L",";
   if (tasks.find(L",compactkeyboard,") == std::wstring::npos)
