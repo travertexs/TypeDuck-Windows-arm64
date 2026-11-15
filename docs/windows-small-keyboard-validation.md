@@ -1,5 +1,44 @@
 # Windows Small keyboard: validated ARM installer
 
+## 15 November 2026 recurring recovery installer
+
+Use the [combined installer](https://github.com/travertexs/TypeDuck-Windows-arm64/actions/runs/43680529781/artifacts/14148790573)
+from the [successful seven-job ARM build](https://github.com/travertexs/TypeDuck-Windows-arm64/actions/runs/43680529781).
+Product source is `623289e2bf51bb32336131a2b29ada9a8a871478`; installer SHA-256 is
+`67c0f29e1214e085fc185c85b76034c5a8d98a41bf3105cad8bc7e81126e6ce9`.
+
+The launcher now reads the existing Inno Setup selected-task record instead of
+requiring a duplicate per-user flag. It checks for a missing helper every ten
+seconds, including while idle. The helper checks mapping status every ten seconds
+and restores an inactive mapping, discovers new input hosts every two seconds,
+and backs off after transient failures. These checks run as the current user;
+they add no new machine-wide option, service, or recurring scheduled task.
+
+At the reported failure, the launcher was running but the old user flag was
+absent, while the installer still recorded `compactkeyboard` as selected.
+Installed components and the Windows input DLL matched the previously working
+versions. Restoring the flag caused the old launcher to start its helper. This
+establishes the blocked launch dependency; the cause of the flag's deletion was
+not established.
+
+Local update testing also exposed an installer defect: a locked compatibility
+DLL made Inno require restart before its `NeedRestart` callback, so registration
+inside that callback was skipped. Registration now has a guarded fallback before
+launching TypeDuck. The ARM regression test locks that compatibility DLL and both
+system TSF DLLs, verifies registration runs exactly once, and checks deferred
+language migration and the registration callback. It also passes startup with no
+legacy user flag, two idle helper interruptions, deselection, re-enabling,
+HK/TW migration, packaged engine typing, and uninstall. The static installer
+contract check passes with launcher-before-watcher maintenance ordering.
+
+The final installer was applied to the affected computer. Its registration helper
+ran despite the skipped `NeedRestart` callback; both system TSF DLLs matched the
+Actions artifacts and zh-TW was preserved. Windows still held the old hook and
+queued its replacement for restart. **Final post-reboot desktop acceptance is
+pending.** Hosted CI does not establish a complete reboot or visible Small-layout
+acceptance on the user's desktop. The implementation still depends on recognized
+Windows code; a substantial internal rewrite can require a recognizer update.
+
 ## 12 November 2026 installer with launcher recovery
 
 Use the [combined TypeDuck installer](https://github.com/travertexs/TypeDuck-Windows-arm64/actions/runs/43244236580/artifacts/13957340977)

@@ -43,7 +43,9 @@ The ARM installer therefore includes **Support the Windows Small touch keyboard*
 This separate compatibility helper redirects only TypeDuck's keyboard-definition
 lookup inside the current user's Windows input host to Windows' existing Latin
 QWERTY definition. TypeDuck remains the active IME under the selected zh-HK/zh-TW
-registration. The helper starts at sign-in and handles input-host restarts.
+registration. The launcher uses the existing installer task selection and checks
+for a missing helper every ten seconds. The helper checks mapping status every
+ten seconds and handles input-host restarts. Both run in the current user session.
 It applies directly without a Windows version/hash allowlist. Runtime instruction
 recognition checks the target before installing the mapping; substantially changed
 Windows code can require an updated recognizer. See [implementation and lifecycle

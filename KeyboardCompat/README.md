@@ -51,6 +51,8 @@ Small layout result on a user's desktop.
 After obtaining a verified workflow artifact, the developer diagnostic commands
 are `TypeDuckKeyboardCompat.exe --apply`, `--status`, `--watch`, and `--stop`.
 `--detach` removes the mapping without stopping the watcher, for testing automatic recovery.
+An enabled launcher restarts a stopped watcher at its next recurring check;
+deselect the installer task for a persistent opt-out.
 Removal restores
 the original code through a Detours transaction. A keyboard definition already
 cached by Windows can remain until Windows next resolves that profile.
@@ -79,6 +81,8 @@ Inno Setup replaces/deletes locked helper files at restart. Windows files are
 never replaced. Deselecting the task during an update disables recovery.
 The launcher is stopped before the watcher during maintenance, preventing the
 recurring check from restarting it while files are being updated or removed.
+Registration also runs through a guarded callback before the launcher starts,
+covering updates where a locked hook makes Inno skip its `NeedRestart` callback.
 
 Candidate placement uses `IFrameworkInputPane::Location`, verified locally to
 return the Small keyboard's screen rectangle. Candidates avoid that rectangle
