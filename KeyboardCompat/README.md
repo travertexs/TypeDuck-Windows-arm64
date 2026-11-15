@@ -49,7 +49,9 @@ Detours attach/detach tests on windows-11-arm. CI cannot establish the visible
 Small layout result on a user's desktop.
 
 After obtaining a verified workflow artifact, the developer diagnostic commands
-are `TypeDuckKeyboardCompat.exe --apply`, `--status`, `--watch`, and `--stop`. Removal restores
+are `TypeDuckKeyboardCompat.exe --apply`, `--status`, `--watch`, and `--stop`.
+`--detach` removes the mapping without stopping the watcher, for testing automatic recovery.
+Removal restores
 the original code through a Detours transaction. A keyboard definition already
 cached by Windows can remain until Windows next resolves that profile.
 
@@ -58,15 +60,25 @@ cached by Windows can remain until Windows next resolves that profile.
 The ARM installer includes a bilingual Small-keyboard task. It preserves task
 selection on updates and installs the native helper in `KeyboardCompat` under
 the same installation root as `TypeDuckLauncher.exe`. The launcher reads the
-installing user's `SmallKeyboardEnabled` preference and starts the helper at
-startup. It also checks for a missing watcher when an IME client connects. This
+existing Inno Setup record of the selected `compactkeyboard` task and starts the
+helper at startup. It checks for a missing watcher every 10 seconds and when an IME client connects. This
 allows the helper to recover if the launcher starts on demand after sign-in.
 Updates remove the previous independent helper Run entry.
-The watcher handles a newly started Windows input host and exits on `--stop`.
+The launcher reads the existing installation record without writing to it.
+The older duplicate user setting is removed on update, so its absence after
+sign-in cannot disable the installed component.
+The watcher checks each live Windows input host's mapping every 10 seconds and
+reapplies it when inactive. Newly started hosts are discovered every 2 seconds;
+transient failures retry with a delay growing from 2 to at most 60 seconds.
+A timed-out remote operation is not duplicated in the same host, because its
+thread may still be running; a replacement host gets a fresh attempt.
+The watcher exits on `--stop`.
 Updates and uninstall stop the watcher and detach the mapping. Updates request
 a restart because Windows can retain the detached DLL until its input host exits.
 Inno Setup replaces/deletes locked helper files at restart. Windows files are
-never replaced. Deselecting the task during an update clears the preference.
+never replaced. Deselecting the task during an update disables recovery.
+The launcher is stopped before the watcher during maintenance, preventing the
+recurring check from restarting it while files are being updated or removed.
 
 Candidate placement uses `IFrameworkInputPane::Location`, verified locally to
 return the Small keyboard's screen rectangle. Candidates avoid that rectangle

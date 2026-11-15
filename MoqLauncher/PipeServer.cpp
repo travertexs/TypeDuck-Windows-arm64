@@ -333,6 +333,11 @@ void PipeServer::asyncTerminateAllBackends() {
 
 void PipeServer::shutdown() {
   logger_->info("Shutting down launcher");
+  if (smallKeyboardWatchdogInitialized_ &&
+      !uv_is_closing(reinterpret_cast<uv_handle_t *>(&smallKeyboardWatchdog_))) {
+    uv_timer_stop(&smallKeyboardWatchdog_);
+    uv_close(reinterpret_cast<uv_handle_t *>(&smallKeyboardWatchdog_), nullptr);
+  }
 
   auto clients = clients_;
   for (auto client : clients) {
@@ -569,17 +574,26 @@ void PipeServer::onNewClientConnected(uv_stream_t *server, int status) {
 }
 
 void PipeServer::ensureSmallKeyboardWatcher() {
-  // Called on the launcher event loop at startup and when an IME client connects.
+  // Called on the event loop at startup, periodically and on IME connections.
   // Keep registry and process work out of host applications and off the key path.
   const ULONGLONG now = GetTickCount64();
   if (deferSmallKeyboard_ || now < nextWatcherCheck_)
     return;
   nextWatcherCheck_ = now + 2000;
 
-  DWORD enabled = 0;
-  DWORD size = sizeof(enabled);
-  if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\TypeDuckIME", L"SmallKeyboardEnabled",
-                   RRF_RT_REG_DWORD, nullptr, &enabled, &size) != ERROR_SUCCESS || enabled != 1)
+  // Inno already persists the selected task in this installation record.
+  // Using it avoids a second preference that can disappear from a user hive.
+  constexpr wchar_t installKey[] =
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"
+      L"{9B52CF20-1C5D-4C74-9F5D-9E66377C8F37}_is1";
+  wchar_t selectedTasks[1024]{};
+  DWORD size = sizeof(selectedTasks);
+  if (RegGetValueW(HKEY_LOCAL_MACHINE, installKey, L"Inno Setup: Selected Tasks",
+                   RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,
+                   nullptr, selectedTasks, &size) != ERROR_SUCCESS)
+    return;
+  const std::wstring tasks = L"," + std::wstring(selectedTasks) + L",";
+  if (tasks.find(L",compactkeyboard,") == std::wstring::npos)
     return;
   HANDLE watcher = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\TypeDuckKeyboardCompat.Watcher");
   if (watcher) {
@@ -661,6 +675,16 @@ int PipeServer::exec(LPSTR cmd) {
   if (applySettingsOnStartup_) {
     runStartupSettingsApply();
   }
+  int watchdogError = uv_timer_init(uv_default_loop(), &smallKeyboardWatchdog_);
+  if (watchdogError == 0) {
+    smallKeyboardWatchdogInitialized_ = true;
+    smallKeyboardWatchdog_.data = this;
+    watchdogError = uv_timer_start(&smallKeyboardWatchdog_, [](uv_timer_t* timer) {
+      static_cast<PipeServer*>(timer->data)->ensureSmallKeyboardWatcher();
+    }, 10000, 10000);
+  }
+  if (watchdogError != 0)
+    logger_->warn("Could not start the Small keyboard recovery timer ({})", uv_strerror(watchdogError));
 
   // run GUI message loop in another worker thread
   uv_thread_t uiThread;

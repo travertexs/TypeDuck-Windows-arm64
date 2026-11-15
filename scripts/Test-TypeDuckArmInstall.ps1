@@ -35,6 +35,29 @@ function Invoke-LoadProbe([string]$Probe, [string]$Locale, [switch]$TouchPackets
   }
   throw "TSF profile cache did not settle in three processes: $Probe"
 }
+
+function Restart-InstalledLauncher([string]$InstallDirectory, [switch]$StopWatcher) {
+  $exe = Join-Path $InstallDirectory 'TypeDuckLauncher.exe'
+  $current = @(Get-Process -Name TypeDuckLauncher -ErrorAction SilentlyContinue | Where-Object Path -eq $exe)
+  $quit = Start-Process $exe -ArgumentList '/quit' -PassThru -WindowStyle Hidden
+  if (-not $quit.WaitForExit(10000)) { throw 'Launcher quit command timed out' }
+  foreach ($process in $current) {
+    if (-not $process.WaitForExit(15000)) { throw 'Installed launcher did not stop' }
+  }
+  if ($StopWatcher) {
+    $helper = Join-Path $InstallDirectory 'KeyboardCompat/TypeDuckKeyboardCompat.exe'
+    $watchers = @(Get-Process TypeDuckKeyboardCompat -ErrorAction SilentlyContinue | Where-Object Path -eq $helper)
+    $stop = Start-Process $helper -ArgumentList '--stop' -WindowStyle Hidden -PassThru
+    if (-not $stop.WaitForExit(45000) -or $stop.ExitCode -ne 0) { throw 'Could not stop watcher before launcher restart' }
+    foreach ($watcher in $watchers) {
+      if (-not $watcher.WaitForExit(5000)) { throw 'Previous watcher did not exit' }
+    }
+  }
+  $launcher = Start-Process $exe -ArgumentList '/apply-settings' -PassThru -WindowStyle Hidden
+  Start-Sleep -Seconds 3
+  if ($launcher.HasExited) { throw 'Normal launcher startup failed' }
+  return $launcher
+}
 Start-Transcript arm-validation/results.txt
 try {
   Write-Host "OS architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
@@ -82,12 +105,19 @@ try {
     if ((Get-ItemProperty -LiteralPath $runKey).TypeDuckKeyboardCompat) {
       throw 'Legacy independent helper Run entry remained'
     }
-    $enabled = (Get-ItemProperty -LiteralPath 'HKCU:\Software\TypeDuckIME' -ErrorAction SilentlyContinue).SmallKeyboardEnabled
-    if (($enabled -eq 1) -ne ($pass -ne 'upgrade-hk')) { throw "Wrong Small keyboard preference after $pass" }
+    $legacyValue = (Get-ItemProperty -LiteralPath 'HKCU:\Software\TypeDuckIME' -ErrorAction SilentlyContinue).SmallKeyboardEnabled
+    if ($null -ne $legacyValue) { throw 'Legacy user setting remained after installation' }
+    $expectedEnabled = $pass -ne 'upgrade-hk'
+    $installHive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    $installRecord = $installHive.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{9B52CF20-1C5D-4C74-9F5D-9E66377C8F37}_is1')
+    try {
+      $selectedTasks = [string]$installRecord.GetValue('Inno Setup: Selected Tasks')
+      if (($selectedTasks.Split(',') -contains 'compactkeyboard') -ne $expectedEnabled) { throw "Wrong saved installer task after $pass" }
+    } finally { if ($installRecord) { $installRecord.Dispose() }; $installHive.Dispose() }
     if ($pass -eq 'install') {
       $helperPath = Join-Path $compatDir 'TypeDuckKeyboardCompat.exe'
       $waitForWatcher = {
-        for ($i = 0; $i -lt 40; $i++) {
+        for ($i = 0; $i -lt 80; $i++) {
           $running = @(Get-Process -Name TypeDuckKeyboardCompat -ErrorAction SilentlyContinue | Where-Object Path -eq $helperPath)
           if ($running.Count -eq 1) { return $running[0] }
           Start-Sleep -Milliseconds 250
@@ -95,21 +125,44 @@ try {
         throw 'Launcher did not start exactly one installed watcher'
       }
       $first = & $waitForWatcher
+      $launcher = Restart-InstalledLauncher $installDir -StopWatcher
+      $afterRestart = & $waitForWatcher
+      if ($afterRestart.Id -eq $first.Id) { throw 'Fresh launcher did not start a new watcher' }
+      Write-Host 'PASS fresh launcher startup without a per-user Small keyboard setting'
       $stop = Start-Process $helperPath -ArgumentList '--stop' -WindowStyle Hidden -PassThru
-      if (-not $stop.WaitForExit(45000) -or $stop.ExitCode -ne 0 -or -not $first.WaitForExit(5000)) {
-        throw 'Could not reproduce a missing watcher'
+      if (-not $stop.WaitForExit(45000) -or $stop.ExitCode -ne 0 -or -not $afterRestart.WaitForExit(5000)) {
+        throw 'Could not stop restarted watcher'
       }
       Start-Sleep -Seconds 3
       $pipe = [IO.Pipes.NamedPipeClientStream]::new('.', "$env:USERNAME\TypeDuckIME\Launcher", [IO.Pipes.PipeDirection]::InOut)
       try { $pipe.Connect(5000) } finally { $pipe.Dispose() }
       $replacement = & $waitForWatcher
-      if ($replacement.Id -eq $first.Id) { throw 'Watcher recovery did not create a new instance' }
+      if ($replacement.Id -eq $afterRestart.Id) { throw 'Watcher recovery did not create a new instance' }
       Write-Host 'PASS launcher startup and recovery on a new IME pipe connection'
+      for ($cycle = 1; $cycle -le 2; $cycle++) {
+        # No pipe connections or IME activation: only the launcher's timer can recover it.
+        Stop-Process -Id $replacement.Id -Force
+        if (-not $replacement.WaitForExit(5000)) { throw 'Watcher interruption failed' }
+        $previousId = $replacement.Id
+        $replacement = & $waitForWatcher
+        if ($replacement.Id -eq $previousId) { throw 'Idle recovery did not create a new watcher' }
+        Write-Host "PASS recurring idle recovery cycle $cycle"
+      }
       # Seed the previous installer's Run entry and verify migration on upgrade.
       New-ItemProperty -LiteralPath $runKey -Name TypeDuckKeyboardCompat -PropertyType String -Value ('"' + $helperPath + '" --watch') -Force | Out-Null
+      New-Item -Path 'HKCU:\Software\TypeDuckIME' -Force | Out-Null
+      New-ItemProperty -LiteralPath 'HKCU:\Software\TypeDuckIME' -Name SmallKeyboardEnabled -PropertyType DWord -Value 1 -Force | Out-Null
     }
     if ($pass -eq 'upgrade-hk' -and (Get-Process -Name TypeDuckKeyboardCompat -ErrorAction SilentlyContinue)) {
       throw 'Deselecting the task left a watcher running'
+    }
+    if ($pass -eq 'upgrade-hk') {
+      $launcher = Restart-InstalledLauncher $installDir
+      Start-Sleep -Seconds 12
+      if (Get-Process -Name TypeDuckKeyboardCompat -ErrorAction SilentlyContinue) {
+        throw 'Fresh launcher ignored the disabled installation setting'
+      }
+      Write-Host 'PASS disabled installer task survives launcher restart and recurring check'
     }
     foreach ($view in @([Microsoft.Win32.RegistryView]::Registry32, [Microsoft.Win32.RegistryView]::Registry64)) {
       $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
@@ -118,6 +171,7 @@ try {
         try {
           if ($key.GetValue('RegistrationLocale') -ne $case.Expected) { throw "Wrong persisted locale in $view" }
           if ($key.GetValue('PendingRegistrationLocale')) { throw "Unexpected pending locale in $view" }
+          if ($null -ne $key.GetValue('SmallKeyboardEnabled')) { throw "Unexpected duplicate machine-wide Small keyboard setting in $view" }
         } finally { if ($key) { $key.Dispose() } }
         $selectedLanguage = if ($case.Expected -eq 'zh-TW') { '0x00000404' } else { '0x00000c04' }
         $oldLanguage = if ($case.Expected -eq 'zh-TW') { '0x00000c04' } else { '0x00000404' }

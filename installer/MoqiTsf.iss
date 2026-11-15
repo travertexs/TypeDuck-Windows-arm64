@@ -139,7 +139,7 @@ Filename: "{app}\TypeDuckAbout.exe"; Description: "開啟 TypeDuck 關於 / Open
 [Registry]
 #if FileExists(AddBackslash(StageDir) + "win32\TypeDuckIME\KeyboardCompat\TypeDuckKeyboardCompat.exe")
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "TypeDuckKeyboardCompat"; Flags: deletevalue; Check: IsArm64
-Root: HKCU; Subkey: "Software\TypeDuckIME"; ValueType: dword; ValueName: "SmallKeyboardEnabled"; ValueData: "1"; Flags: uninsdeletevalue; Tasks: compactkeyboard; Check: IsArm64
+Root: HKCU; Subkey: "Software\TypeDuckIME"; ValueName: "SmallKeyboardEnabled"; Flags: deletevalue; Check: IsArm64
 #endif
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   ValueType: string; ValueName: "TypeDuckLauncher"; \
@@ -246,8 +246,7 @@ begin
   if IsArm64 and FileExists(Helper) then
   begin
     HadKeyboardCompat := True;
-    { Inhibit launcher recovery during update/removal. Setup writes the selected
-      task back after the files have been installed. }
+    { Remove the previous release's duplicate user preference. }
     RegDeleteValue(HKCU, 'Software\TypeDuckIME', 'SmallKeyboardEnabled');
     if not Exec(Helper, '--stop', '', SW_HIDE, ewWaitUntilTerminated, Code) then
       RaiseException(Bilingual('未能停止小型鍵盤支援。請重新啟動電腦後再試。',
@@ -510,10 +509,11 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
   begin
+    { Stop the recurring launcher check before stopping its helper. }
+    StopTypeDuckProcesses;
     StopKeyboardCompat;
     MigrateLegacyTypeDuckUserMemory;
     HadExistingInstall := ExistingImeInstallationPresent;
-    StopTypeDuckProcesses;
     DeleteTypeDuckReregisterTask;
   end;
 
@@ -690,8 +690,8 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    StopKeyboardCompat;
     StopTypeDuckProcesses;
+    StopKeyboardCompat;
     DeleteTypeDuckReregisterTask;
     if DeleteUserDataOnUninstall then
       DeleteTypeDuckRoamingUserData;

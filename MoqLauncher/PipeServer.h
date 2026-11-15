@@ -165,6 +165,8 @@ private:
 
 	HANDLE singleInstanceMutex_;
 	uv_timer_t startupSettingsApplyTimer_;
+	uv_timer_t smallKeyboardWatchdog_{};
+	bool smallKeyboardWatchdogInitialized_ = false;
 
 	// error logging
 	spdlog::level::level_enum logLevel_;

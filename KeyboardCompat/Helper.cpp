@@ -1,7 +1,10 @@
 #include "Compat.h"
+#include "RecoverySchedule.h"
 #include <tlhelp32.h>
 #include <iostream>
 #include <filesystem>
+#include <map>
+#include <set>
 
 using namespace typeduck::compat;
 struct Handle {
@@ -145,25 +148,31 @@ static int Watch(const std::wstring& hook) {
   Handle stop(CreateEventW(nullptr, TRUE, FALSE, kWatcherStop));
   if (!stop.value) { ReleaseMutex(mutex.value); return GetLastError(); }
   ResetEvent(stop.value);
-  DWORD attemptedPid{};
-  ULONGLONG attemptedCreation{};
+  using HostIdentity = std::pair<DWORD, ULONGLONG>;
+  std::map<HostIdentity, RecoverySchedule> checks;
   while (WaitForSingleObject(stop.value, 0) == WAIT_TIMEOUT) {
+    std::set<HostIdentity> live;
     for (DWORD pid : InputHosts()) {
       Handle target(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid));
       FILETIME created{}, exited{}, kernel{}, user{};
       if (!target.value || !SameUserAndSession(target.value, pid) ||
           !GetProcessTimes(target.value, &created, &exited, &kernel, &user)) continue;
       const ULONGLONG creation = (static_cast<ULONGLONG>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
-      if (pid == attemptedPid && creation == attemptedCreation) continue;
+      const HostIdentity identity{pid, creation};
+      live.insert(identity);
+      auto& check = checks[identity];
+      if (!check.Due(GetTickCount64())) continue;
       DWORD state{};
-      const DWORD error = ControlHost(pid, 0, hook, state);
-      // TextInput.dll can load lazily after the host starts. Retry that case.
-      // Other failures are reported by --status; do not repeatedly touch a host.
-      if (error != ERROR_MOD_NOT_FOUND) { attemptedPid = pid; attemptedCreation = creation; }
+      DWORD error = ControlHost(pid, 2, hook, state);
+      if (!error && !(state & 1)) error = ControlHost(pid, 0, hook, state);
+      check.Complete(GetTickCount64(), error);
     }
+    std::erase_if(checks, [&live](const auto& entry) { return !live.contains(entry.first); });
     if (WaitForSingleObject(stop.value, 2000) != WAIT_TIMEOUT) break;
   }
-  for (DWORD pid : InputHosts()) { DWORD state{}; ControlHost(pid, 1, hook, state); }
+  for (const auto& [identity, check] : checks) {
+    if (!check.timedOut) { DWORD state{}; ControlHost(identity.first, 1, hook, state); }
+  }
   ReleaseMutex(mutex.value);
   return 0;
 }
@@ -179,8 +188,8 @@ static DWORD StopWatcher() {
 }
 
 int wmain(int argc, wchar_t** argv) {
-  if (argc != 2 || (wcscmp(argv[1], L"--apply") && wcscmp(argv[1], L"--status") && wcscmp(argv[1], L"--stop") && wcscmp(argv[1], L"--watch"))) {
-    std::wcerr << L"用法 / Usage: TypeDuckKeyboardCompat --apply | --status | --stop | --watch\n";
+  if (argc != 2 || (wcscmp(argv[1], L"--apply") && wcscmp(argv[1], L"--status") && wcscmp(argv[1], L"--stop") && wcscmp(argv[1], L"--watch") && wcscmp(argv[1], L"--detach"))) {
+    std::wcerr << L"用法 / Usage: TypeDuckKeyboardCompat --apply | --status | --stop | --watch | --detach\n";
     return ERROR_INVALID_PARAMETER;
   }
   wchar_t self[32768]{};
@@ -188,7 +197,8 @@ int wmain(int argc, wchar_t** argv) {
   const auto hook = (std::filesystem::path(self).parent_path() / kHookName).wstring();
   if (!wcscmp(argv[1], L"--watch")) return Watch(hook);
   if (!wcscmp(argv[1], L"--stop")) { const DWORD error = StopWatcher(); if (error) return error; }
-  const ULONG_PTR command = !wcscmp(argv[1], L"--status") ? 2 : (!wcscmp(argv[1], L"--stop") ? 1 : 0);
+  const ULONG_PTR command = !wcscmp(argv[1], L"--status") ? 2 :
+      ((!wcscmp(argv[1], L"--stop") || !wcscmp(argv[1], L"--detach")) ? 1 : 0);
   const auto hosts = InputHosts();
   if (hosts.empty()) { std::cout << "{\"error\":0,\"active\":false,\"message\":\"Windows input host is not running\"}\n"; return command == 0 ? ERROR_NOT_FOUND : 0; }
   DWORD last = ERROR_NOT_FOUND;

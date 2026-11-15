@@ -1,5 +1,6 @@
 #include "Compat.h"
 #include "DynamicLookup.h"
+#include "RecoverySchedule.h"
 #include <detours.h>
 #include <iostream>
 #include <cstring>
@@ -45,8 +46,31 @@ static void CheckRuntimeDiscovery() {
   Check(!FindLookup(image, codeRange), "Out of bounds executable section rejected");
 }
 
+static void CheckRecurringRecovery() {
+  using namespace typeduck::compat;
+  RecoverySchedule check;
+  Check(check.Due(0), "New host is checked immediately");
+  check.Complete(100, NO_ERROR);
+  Check(!check.Due(10099) && check.Due(10100), "Healthy host is checked again after ten seconds");
+  check.Complete(10100, ERROR_MOD_NOT_FOUND);
+  Check(!check.Due(12099) && check.Due(12100), "Lazy input DLL is retried");
+  check.Complete(12100, ERROR_ACCESS_DENIED);
+  Check(check.nextCheck == 16100, "Transient failure is retried with backoff");
+  for (int i = 0; i < 10; ++i) check.Complete(check.nextCheck, ERROR_ACCESS_DENIED);
+  const auto now = check.nextCheck;
+  check.Complete(now, ERROR_ACCESS_DENIED);
+  Check(check.nextCheck == now + 60000, "Repeated failures have a bounded retry rate");
+  check.Complete(check.nextCheck, NO_ERROR);
+  Check(check.retryDelay == 2000, "Recovery resets failure backoff");
+  check.Complete(1000000, ERROR_TIMEOUT);
+  Check(!check.Due(2000000), "Timed-out remote operation is not duplicated");
+  check = RecoverySchedule{};
+  Check(check.Due(2000000), "Replacement host receives a fresh recovery schedule");
+}
+
 int main() {
   CheckRuntimeDiscovery();
+  CheckRecurringRecovery();
   using namespace typeduck::compat;
   const std::wstring tw = L"0404:{7D92985A-BC53-47B5-A5CC-6E47F86B9D18}{C6E8F5DF-6504-44F9-B7CF-17A195373A83}";
   Check(IsTypeDuckTip(tw), "Taiwan exact TypeDuck profile");
